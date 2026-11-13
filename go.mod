@@ -377,3 +377,5 @@ tool github.com/matryer/moq
 // containerd v2.2.x requires bbolt v1.4.3, which is semver-higher than
 // the main-branch pseudo-version containing the freelist merge fix.
 replace go.etcd.io/bbolt => go.etcd.io/bbolt v1.4.0-beta.0.0.20260422092123-cd4bafc17e45
+
+replace github.com/dagger/otel-go => github.com/phosphorco/otel-go v1.43.1-phosphor.2

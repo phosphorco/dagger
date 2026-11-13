@@ -1,3 +1,7 @@
+// PHOSPHOR PATCH-FOR-THE-PATCH: regression updates for the beta.23
+// telemetry follow-up. Keep frontend output synchronous and remote metrics
+// queued when resolving an upstream conflict; see PHOSPHOR_PATCHES.md.
+
 package daggercmd
 
 import (
@@ -20,6 +24,7 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
@@ -94,7 +99,10 @@ func TestEngineTelemetryConfigDefaultsToFrontendAndCloud(t *testing.T) {
 	require.Len(t, frontend.MetricExporterCalls(), 1)
 	require.Equal(t, []sdktrace.SpanExporter{localSpans}, cfg.LiveTraceExporters)
 	require.Equal(t, []sdklog.Exporter{cloudLogs}, cfg.LiveLogExporters)
-	require.Equal(t, []sdkmetric.Exporter{localMetrics, cloudMetrics}, cfg.LiveMetricExporters)
+	require.Len(t, cfg.LiveMetricExporters, 2)
+	require.Same(t, localMetrics, cfg.LiveMetricExporters[0])
+	require.NotSame(t, cloudMetrics, cfg.LiveMetricExporters[1], "remote metrics are queued independently of the frontend")
+	t.Cleanup(func() { require.NoError(t, cfg.LiveMetricExporters[1].Shutdown(context.Background())) })
 	require.Len(t, cfg.SpanProcessors, 1, "Cloud spans use their independent large-queue processor")
 	t.Cleanup(func() {
 		require.NoError(t, cfg.SpanProcessors[0].Shutdown(context.Background()))
@@ -133,7 +141,9 @@ func TestEngineTelemetryConfigWithoutFrontendStillExportsToCloud(t *testing.T) {
 	require.Empty(t, frontend.MetricExporterCalls())
 	require.Empty(t, cfg.LiveTraceExporters)
 	require.Equal(t, []sdklog.Exporter{cloudLogs}, cfg.LiveLogExporters)
-	require.Equal(t, []sdkmetric.Exporter{cloudMetrics}, cfg.LiveMetricExporters)
+	require.Len(t, cfg.LiveMetricExporters, 1)
+	require.NotSame(t, cloudMetrics, cfg.LiveMetricExporters[0])
+	t.Cleanup(func() { require.NoError(t, cfg.LiveMetricExporters[0].Shutdown(context.Background())) })
 	require.Len(t, cfg.SpanProcessors, 1)
 
 	snapshot := tracetest.SpanStub{
@@ -156,8 +166,9 @@ func TestEngineTelemetryConfigWithoutFrontendStillExportsToCloud(t *testing.T) {
 	})
 
 	require.NoError(t, cfg.LiveLogExporters[0].Export(ctx, nil))
-	require.NoError(t, cfg.LiveMetricExporters[0].Export(ctx, new(metricdata.ResourceMetrics)))
+	require.NoError(t, cfg.LiveMetricExporters[0].Export(ctx, &metricdata.ResourceMetrics{Resource: resource.Empty(), ScopeMetrics: []metricdata.ScopeMetrics{{Metrics: []metricdata.Metrics{{Name: "test", Data: metricdata.Gauge[int64]{DataPoints: []metricdata.DataPoint[int64]{{Value: 1}}}}}}}}))
 
+	require.NoError(t, cfg.LiveMetricExporters[0].ForceFlush(ctx))
 	require.Len(t, cloudSpans.GetSpans(), 1)
 	require.Equal(t, int64(1), cloudLogs.exports.Load())
 	require.Equal(t, int64(1), cloudMetrics.exports.Load())

@@ -537,7 +537,10 @@ func engineTelemetryConfigWithCloud(ctx context.Context, configuredCloudExporter
 			}
 			cfg.SpanProcessors = append(cfg.SpanProcessors, enginetel.NewLargeQueueLiveSpanProcessor(spans))
 			cfg.LiveLogExporters = append(cfg.LiveLogExporters, logs)
-			cfg.LiveMetricExporters = append(cfg.LiveMetricExporters, metrics)
+			// PHOSPHOR PATCH-FOR-THE-PATCH: this Cloud destination must not
+			// block local metric delivery or engine stream draining on HTTP retries.
+			// Preserve this isolation when rebasing the original telemetry patch.
+			cfg.LiveMetricExporters = append(cfg.LiveMetricExporters, telemetry.NewQueuedMetricExporter(metrics))
 		}
 	}
 	return cfg, cloud
@@ -641,10 +644,19 @@ func initEngineTelemetry(ctx context.Context) (context.Context, func(error) erro
 		}
 		rerr = errors.Join(rerr, drainErr)
 		telemetry.EndWithCause(span, &rerr)
-		// telemetry.Close owns the remote providers created by Init.
-		telemetry.Close()
+		// PHOSPHOR PATCH-FOR-THE-PATCH: follow-up to the beta.23 telemetry
+		// shutdown patch. An upstream conflict must retain this separate remote
+		// budget and the real local-output/exit-status regression coverage.
+		// Command output above is local and must be drained. Remote telemetry is
+		// best-effort: do not put ingestion retries on the command exit path.
+		remoteCtx, cancelRemote := context.WithTimeout(context.WithoutCancel(ctx), 250*time.Millisecond)
+		if err := telemetry.CloseContext(remoteCtx); err != nil {
+			Frontend.SetTelemetryError(err)
+			slog.Debug("remote telemetry flush incomplete", "error", err)
+		}
+		cancelRemote()
 		if diagnostics != nil {
-			// Remote processors above remain owned by telemetry.Close. Only
+			// Remote processors above remain owned by telemetry.CloseContext. Only
 			// close the local diagnostic processor here, with a short budget.
 			diagnosticCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 			_ = diagnostics.Shutdown(diagnosticCtx)
