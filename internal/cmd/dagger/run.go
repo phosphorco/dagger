@@ -140,6 +140,11 @@ func Run(cmd *cobra.Command, args []string) error {
 
 func run(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
+	if silent {
+		// PHOSPHOR PATCH-FOR-THE-PATCH: the child owns stdio, not progress.
+		// Independently configured telemetry still receives the native stream.
+		ctx = withoutFrontendTelemetry(ctx)
+	}
 
 	u, err := uuid.NewRandom()
 	if err != nil {

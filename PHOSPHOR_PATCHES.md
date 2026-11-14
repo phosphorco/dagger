@@ -25,5 +25,18 @@ exact stdout, real command failure and live shared-backend trace/log readback.
 A smaller shutdown deadline alone is insufficient: the synchronous metric
 forwarding path independently blocked larger-output commands in the reproducer.
 
+Silent check execution and silent `api with-session` sessions also omit local
+retaining progress exporters. Check status still comes from evaluated artifacts;
+the session's child still owns stdio. Independently configured traces, logs and
+metrics remain enabled. Check listing keeps its primary stdout frontend even
+when progress is silent. `TestHeadlessCommandTelemetry` covers these command
+boundaries, including visible mode and independent exporter admission.
+
+Native qualification must preserve a real passing check, failing check, artifact
+export, scalar status and outer failure exit in one session, with matching CLI
+and engine telemetry. Use module-qualified check links from the real workspace
+catalog. A release probe does not substitute for the consuming repository's
+complete diagnostic report.
+
 Upstream removal criterion: equivalent tests pass against the proposed upstream
 replacement without this follow-up. An HTTP 200 alone is not delivery proof.

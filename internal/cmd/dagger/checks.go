@@ -73,8 +73,15 @@ func runChecksCommand(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	ctx := cmd.Context()
+	if silent && !checksListMode {
+		// PHOSPHOR PATCH-FOR-THE-PATCH: status comes from evaluated artifacts.
+		// Listing still uses the frontend's primary stdout. Executing silent
+		// checks keeps external telemetry without retaining its progress graph.
+		ctx = withoutFrontendTelemetry(ctx)
+	}
 	return withArtifactEngine(
-		cmd.Context(),
+		ctx,
 		params,
 		func(ctx context.Context, engineClient *client.Client) error {
 			dag := engineClient.Dagger()
