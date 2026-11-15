@@ -115,6 +115,12 @@ type Client struct {
 	closeCtx context.Context
 	cancel   context.CancelCauseFunc
 	closeMu  sync.RWMutex
+	// Session cleanup accounting uses the existing resource/client owner lock.
+	cleanupAccounting        bool
+	cleanupAccountingActive  uint64
+	cleanupAccountingFailed  bool
+	cleanupAccountingUnknown bool
+	cleanupAccountingClosed  bool
 }
 
 type sessionHandler interface {
@@ -191,13 +197,19 @@ func (opts *Opts) Close() error {
 }
 
 func (c *Client) withClientCloseCancel(ctx context.Context) (context.Context, context.CancelCauseFunc, error) {
+	finish, accountErr := c.beginSessionResourceAccounting(false)
+	if accountErr != nil {
+		return nil, nil, accountErr
+	}
 	c.closeMu.RLock()
-	defer c.closeMu.RUnlock()
 	select {
 	case <-c.closeCtx.Done():
+		c.closeMu.RUnlock()
+		finish(nil)
 		return nil, nil, errors.New("client closed")
 	default:
 	}
+	c.closeMu.RUnlock()
 	ctx, cancel := context.WithCancelCause(ctx)
 	go func() {
 		select {
@@ -206,7 +218,7 @@ func (c *Client) withClientCloseCancel(ctx context.Context) (context.Context, co
 		case <-ctx.Done():
 		}
 	}()
-	return ctx, cancel, nil
+	return ctx, func(cause error) { cancel(cause); finish(nil) }, nil
 }
 
 func (c *Client) NewNetworkNamespace(ctx context.Context, hostname string) (Namespaced, error) {
@@ -238,6 +250,9 @@ func RunInNetNS[T any](
 }
 
 func (c *Client) GetSessionCaller(ctx context.Context) (_ SessionCaller, rerr error) {
+	if err := c.observeUncoveredSessionResource(); err != nil {
+		return nil, err
+	}
 	clientMetadata, err := engine.ClientMetadataFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -262,6 +277,9 @@ func (c *Client) ListenHostToContainer(
 	ctx context.Context,
 	hostListenAddr, proto, upstream string,
 ) (*h2c.ListenResponse, func() error, error) {
+	if err := c.observeUncoveredSessionResource(); err != nil {
+		return nil, nil, err
+	}
 	ctx, cancel, err := c.withClientCloseCancel(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -443,6 +461,9 @@ func (c *Client) ListenHostToContainer(
 }
 
 func (c *Client) GetCredential(ctx context.Context, protocol, host, path string) (*git.CredentialInfo, error) {
+	if err := c.observeUncoveredSessionResource(); err != nil {
+		return nil, err
+	}
 	md, err := engine.ClientMetadataFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -472,6 +493,9 @@ func (c *Client) GetCredential(ctx context.Context, protocol, host, path string)
 }
 
 func (c *Client) PromptAllowLLM(ctx context.Context, moduleRepoURL string) error {
+	if err := c.observeUncoveredSessionResource(); err != nil {
+		return err
+	}
 	// the flag hasn't allowed this LLM call, so prompt the user
 	caller, err := c.GetMainClientCaller(ctx)
 	if err != nil {
@@ -495,6 +519,9 @@ func (c *Client) PromptAllowLLM(ctx context.Context, moduleRepoURL string) error
 }
 
 func (c *Client) PromptHumanHelp(ctx context.Context, title, question string) (string, error) {
+	if err := c.observeUncoveredSessionResource(); err != nil {
+		return "", err
+	}
 	caller, err := c.GetMainClientCaller(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to get main client caller to prompt user for human help: %w", err)
@@ -512,6 +539,9 @@ func (c *Client) PromptHumanHelp(ctx context.Context, title, question string) (s
 }
 
 func (c *Client) GetGitConfig(ctx context.Context, checkoutPath ...string) ([]*git.GitConfigEntry, error) {
+	if err := c.observeUncoveredSessionResource(); err != nil {
+		return nil, err
+	}
 	md, err := engine.ClientMetadataFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -578,6 +608,9 @@ var ErrGitUncommittedUnsupported = errors.New("client cannot pack git worktrees"
 //
 // A checkout that is not a git repository reports gitutil.ErrGitNoRepo.
 func (c *Client) GitCheckoutState(ctx context.Context, checkoutPath string) (string, error) {
+	if err := c.observeUncoveredSessionResource(); err != nil {
+		return "", err
+	}
 	md, err := engine.ClientMetadataFromContext(ctx)
 	if err != nil {
 		return "", err
@@ -644,6 +677,9 @@ func (pack *GitCheckoutPack) Close() error {
 // its own git. See GitCheckoutPack. A checkout that is not a git repository
 // reports gitutil.ErrGitNoRepo.
 func (c *Client) PackGitCheckout(ctx context.Context, checkoutPath, expectedStateDigest string) (_ *GitCheckoutPack, rerr error) {
+	if err := c.observeUncoveredSessionResource(); err != nil {
+		return nil, err
+	}
 	md, err := engine.ClientMetadataFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -768,6 +804,9 @@ func (pack *GitUncommittedPack) Close() error {
 // report ErrGitUncommittedUnsupported so callers can retain the directory-sync
 // fallback.
 func (c *Client) PackGitUncommitted(ctx context.Context, checkoutPath, expectedHeadSHA string) (_ *GitUncommittedPack, rerr error) {
+	if err := c.observeUncoveredSessionResource(); err != nil {
+		return nil, err
+	}
 	md, err := engine.ClientMetadataFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -924,6 +963,9 @@ type TerminalClient struct {
 func (c *Client) OpenTerminal(
 	ctx context.Context,
 ) (*TerminalClient, error) {
+	if err := c.observeUncoveredSessionResource(); err != nil {
+		return nil, err
+	}
 	caller, err := c.GetMainClientCaller(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get main client caller: %w", err)
@@ -1110,6 +1152,9 @@ func newTerminalClient(ctx context.Context, term terminal.Terminal_SessionClient
 func (c *Client) OpenPipe(
 	ctx context.Context,
 ) (io.ReadWriteCloser, error) {
+	if err := c.observeUncoveredSessionResource(); err != nil {
+		return nil, err
+	}
 	caller, err := c.GetMainClientCaller(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get main client caller: %w", err)
@@ -1128,6 +1173,9 @@ func (c *Client) WriteImage(
 	ctx context.Context,
 	name string,
 ) (*ImageWriter, error) {
+	if err := c.observeUncoveredSessionResource(); err != nil {
+		return nil, err
+	}
 	md, err := engine.ClientMetadataFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -1170,6 +1218,9 @@ func (c *Client) ReadImage(
 	ctx context.Context,
 	name string,
 ) (*ImageReader, error) {
+	if err := c.observeUncoveredSessionResource(); err != nil {
+		return nil, err
+	}
 	md, err := engine.ClientMetadataFromContext(ctx)
 	if err != nil {
 		return nil, err

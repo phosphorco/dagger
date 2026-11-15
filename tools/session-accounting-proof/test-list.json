@@ -1,0 +1,31 @@
+{
+  "engine/server": [
+    "TestSessionAccountingHTTPAuthBeforeResourceSetup",
+    "TestSessionAccountingHTTPDurableReleaseAndUncertainCleanup",
+    "TestSessionAccountingMissingAndFalseCompletenessNeverRelease",
+    "TestSessionAccountingLostStorageDoesNotRecreateOrAck",
+    "TestSessionAccountingDisabledAndBoundedControls",
+    "TestSessionAccountingRetentionPreservesPriorFacts",
+    "TestSessionAccountingUnobservedExecutorDomainCannotRelease",
+    "TestSessionAccountingMissingCredentialsDoNotCreateState",
+    "TestSessionTeardownFlushesTraceTelemetryAfterMetricShutdown",
+    "TestSessionTeardownHonorsCallerDeadlineForStrandedLease",
+    "TestSameIDConnectDuringBackgroundTeardownGetsRetryable",
+    "TestReapAbandonedWhenMainClientReconnects",
+    "TestFailedSessionInitializationCanRetrySameID",
+    "TestConcurrentReapsSingleTeardown",
+    "TestSharedCallSurvivesItsProducersFullSessionTeardown",
+    "TestSharedCallSurvivesItsProducersSessionRemoval",
+    "TestSessionAccountingStatusDoesNotWaitForLifecycleOwner"
+  ],
+  "engine/engineutil": [
+    "TestSessionCleanupAccountingWaitsThroughCleanupAndPermitRelease",
+    "TestSessionCleanupAccountingRetainsFailureAndUnknownHelpers",
+    "TestExecutionAdmissionDeclaredLeavesShareBoundAcrossSessionsAndRelease",
+    "TestExecutionAdmissionHoldsPermitThroughFailureCleanup",
+    "TestExecutionAdmissionActiveCancellationReleases",
+    "TestExecutionAdmissionDeclaredNoChildLeafWaitsForSlot",
+    "TestExecutionAdmissionDefaultNestedUserCanAwaitCountedChild",
+    "TestExecutionAdmissionCAHelperDoesNotReacquireOuterSlot"
+  ]
+}

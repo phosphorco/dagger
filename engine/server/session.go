@@ -65,6 +65,8 @@ import (
 )
 
 type daggerSession struct {
+	// accountingBinding is an immutable fact owned under lifecycleMu, never a new controller.
+	accountingBinding  SessionAccountingBinding
 	sessionID          string
 	archiveMu          sync.Mutex
 	archiveManifest    *archive.Manifest
@@ -1221,6 +1223,7 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 	// immediately and skip/bail instead of using a tearing-down session. The
 	// session is intentionally left in srv.daggerSessions as a tombstone until
 	// the caller retires it after lifecycleMu is released.
+	accountingStartErr := srv.markSessionAccountingState(sess, "closing")
 	sess.markSessionRemoved()
 	sess.beginClientScopeTeardown()
 	sess.beginClosing()
@@ -1234,7 +1237,8 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 		time.AfterFunc(time.Second, srv.throttledSessionGC)
 	}()
 
-	var errs error
+	var errs error = accountingStartErr
+	cleanupProof := SessionAccountingCleanup{}
 
 	// Teardown must not be cancelled by the request that triggered it, but it
 	// honors a deadline when the caller has one. Engine graceful stop bounds
@@ -1260,7 +1264,10 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 	if err := sess.services.StopSessionServices(ctx, sess.sessionID); err != nil {
 		slog.Warn("error stopping services", "error", err)
 		errs = errors.Join(errs, fmt.Errorf("stop client services: %w", err))
+	} else {
+		cleanupProof.Services = "native services stop completed"
 	}
+
 	step.end()
 
 	slog.Debug("stopped services")
@@ -1269,7 +1276,9 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 	// finalizeSessionArchive. Other teardown errors do not affect sealing.
 	var archiveErrs error
 
+	cleanupProof.Agents = "native agents domain empty"
 	if sess.agents != nil {
+		cleanupProof.Agents = ""
 		closeErr := sess.closeArchiveControl(ctx)
 		errs = errors.Join(errs, closeErr)
 		archiveErrs = errors.Join(archiveErrs, closeErr)
@@ -1278,6 +1287,8 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 			killErr := fmt.Errorf("stop session agents: %w", err)
 			errs = errors.Join(errs, killErr)
 			archiveErrs = errors.Join(archiveErrs, killErr)
+		} else {
+			cleanupProof.Agents = "native agents kill completed"
 		}
 	}
 
@@ -1297,6 +1308,7 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 		sess.dagqlCond.Wait()
 	}
 	sess.dagqlMu.Unlock()
+	cleanupProof.Requests = "native dagql request drain completed"
 	step.end()
 
 	// cleanup analytics and telemetry
@@ -1320,7 +1332,10 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 	} else if waitErr := srv.engineCache.WaitSessionRelease(teardownCtx, sess.sessionID); waitErr != nil {
 		slog.Error("error waiting for dagql cache release", "error", waitErr)
 		errs = errors.Join(errs, fmt.Errorf("wait for dagql cache release: %w", waitErr))
+	} else {
+		cleanupProof.DetachedCache = "native detached cache release barrier completed"
 	}
+
 	// ReleaseSession tombstones the cache before this wait, and session removal
 	// prevents new client-scope acquisition. Waiting without the best-effort
 	// cleanup deadline is deliberate: shutting telemetry down while an accepted
@@ -1328,6 +1343,15 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 	if err := sess.waitForClientScopeDrain(teardownCtx); err != nil {
 		slog.Error("error waiting for client scopes to drain", "error", err)
 		errs = errors.Join(errs, fmt.Errorf("wait for client scopes: %w", err))
+	} else {
+		cleanupProof.ClientScopes = "native client scope drain completed"
+	}
+	if sess.engineUtilClient == nil {
+		cleanupProof.ExecHelpersPermits = "native executor client never initialized"
+	} else if err := sess.engineUtilClient.ConfirmSessionResourceCleanup(); err != nil {
+		errs = errors.Join(errs, err)
+	} else {
+		cleanupProof.ExecHelpersPermits = "native execution cleanup and permit release barrier completed"
 	}
 	step.end()
 	sess.schemaBuilderMemo.Store(nil)
@@ -1353,6 +1377,7 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 	// analytics hook, and cache cleanup is now stopped. Stamp the exact final
 	// wcprof count, then make metric/trace/log ForceFlush+Shutdown the final
 	// delivery barrier for the session-owned providers.
+	cleanupErrs := errs
 	telemetryCtx, cancelTelemetry := context.WithTimeout(teardownCtx, 60*time.Second)
 	defer cancelTelemetry()
 	step = teardown.beginStep("session.shutdownTelemetry")
@@ -1369,6 +1394,16 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 		close(sess.shutdownCh)
 	})
 
+	// Telemetry errors remain visible in the native return/archives. The native
+	// resource proof is independent of successful delivery; unobservable helper
+	// domains above remain cleanup-uncertain regardless of the span carrier.
+	if sess.cloudForwarder != nil {
+		// Existing Cloud forwarding deliberately outlives this session. Without a
+		// positive accounted transfer from that owner it cannot vanish from a hold.
+		cleanupProof.ExecHelpersPermits = ""
+		cleanupErrs = errors.Join(cleanupErrs, errors.New("retained Cloud forwarding has no accounted shared-domain transfer proof"))
+	}
+	errs = errors.Join(errs, srv.finishSessionAccounting(sess, cleanupProof, errors.Join(cleanupErrs, telemetryErr)))
 	teardown.end()
 	sess.phase.end(srv)
 	return errs
@@ -1579,6 +1614,9 @@ func (srv *Server) initializeSessionEngineClient(ctx context.Context, sess *dagg
 	engineUtilClient, err := engineutil.NewClient(ctx, &engineUtilOpts)
 	if err != nil {
 		return fmt.Errorf("failed to create session engine client: %w", err)
+	}
+	if srv.sessionAccounting != nil && sess.accountingBinding.Generation != 0 {
+		engineUtilClient.EnableSessionCleanupAccounting()
 	}
 	sess.engineUtilClient = engineUtilClient
 	return nil
@@ -2003,6 +2041,13 @@ func (srv *Server) getOrInitClient(
 		sess.lifecycleMu.Lock()
 	}
 
+	// Authentication/intent validation precedes initialization. A refused caller
+	// cannot destroy a valid staged root or trigger failure cleanup on its behalf.
+	if err := srv.checkSessionAccountingBeforeInit(sess, opts.ClientMetadata, opts.RootClient); err != nil {
+		sess.lifecycleMu.Unlock()
+		return nil, nil, sessionAccountingInitError{err}
+	}
+	initializingSession := sess.state.Load() == sessionStateUninitialized
 	// We now hold sess.lifecycleMu. The deferred handler below manages the unlock
 	// for both success and failure. On failure of a session WE created it:
 	// publishes the removed tombstone (while still holding lifecycleMu, so a
@@ -2022,7 +2067,7 @@ func (srv *Server) getOrInitClient(
 			unlockLifecycle()
 			return
 		}
-		if createdSession {
+		if initializingSession {
 			sess.markSessionRemoved()
 		}
 		unlockLifecycle()
@@ -2033,7 +2078,8 @@ func (srv *Server) getOrInitClient(
 		// (createdSession=false). In current in-tree call paths a created session
 		// is always a main-client session that has attached nothing session-scoped,
 		// so there is nothing to release before dropping the tombstone.
-		if createdSession {
+		if initializingSession {
+			rerr = errors.Join(rerr, srv.finishSessionAccounting(sess, SessionAccountingCleanup{}, rerr))
 			srv.deleteSession(sess)
 		}
 	}()
@@ -2220,6 +2266,8 @@ func (srv *Server) getOrInitClient(
 		sess.clientRecords[clientID] = record
 		sess.clientRuntimes[clientID] = client
 		sess.clientMu.Unlock()
+	}
+	if opts.RootClient && client.transportLease == nil {
 		client.transportLease = sess.newClientLifecycleLeaseLocked(client, engine.ClientLeaseTransport, clientID)
 	}
 
@@ -2240,6 +2288,12 @@ func (srv *Server) getOrInitClient(
 			phaseCtx = wcprof.ContextWithProfiling(phaseCtx)
 		}
 		sess.phase = srv.beginSessionPhase(phaseCtx, sess.sessionID)
+		if accountingErr := srv.markSessionAccountingState(sess, "initialized"); accountingErr != nil {
+			// Already-owned runtime lifetime is unchanged; the uncertain native store
+			// refuses reconciliation/new accounting until explicit owner recovery.
+			srv.sessionAccounting.fault.Store(true)
+			slog.Error("native session accounting initialization uncertain", "sessionID", sess.sessionID, "error", accountingErr)
+		}
 	}
 	if opts.requestLeaseOut != nil {
 		*opts.requestLeaseOut = requestLease
@@ -2333,6 +2387,10 @@ func (srv *Server) reapDaggerSession(ctx context.Context, sess *daggerSession, m
 
 // ServeHTTP serves clients directly hitting the engine API (i.e. main client callers, not nested execs like module functions)
 func (srv *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, sessionAccountingPrefix) && (len(r.Header.Values(engine.ClientMetadataMetaKey)) != 1 || r.Header.Get(engine.ClientMetadataMetaKey) == "" || len(r.Header.Get(engine.ClientMetadataMetaKey)) > 64<<10) {
+		http.Error(w, "bounded native metadata required", http.StatusBadRequest)
+		return
+	}
 	clientMetadata, err := engine.ClientMetadataFromHTTPHeaders(r.Header)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to get client metadata: %v", err), http.StatusInternalServerError)
@@ -2494,6 +2552,12 @@ func nestedClientMetadataForRequest(h http.Header, nestedClientMetadata *engine.
 const InstrumentationLibrary = "dagger.io/engine.server"
 
 func (srv *Server) serveHTTPToClient(w http.ResponseWriter, r *http.Request, opts *ClientInitOpts) (rerr error) {
+	if strings.HasPrefix(r.URL.Path, sessionAccountingPrefix) {
+		if err := srv.serveSessionAccountingHTTP(w, r, opts); err != nil {
+			writeSessionAccountingHTTPError(w, r, err)
+		}
+		return nil
+	}
 	if srv.isShuttingDown() {
 		switch r.URL.Path {
 		case engine.QueryEndpoint:
@@ -2581,6 +2645,11 @@ func (srv *Server) serveHTTPToClient(w http.ResponseWriter, r *http.Request, opt
 		client, cleanup, err := srv.getOrInitClient(ctx, &requestOpts)
 		if err != nil {
 			err = fmt.Errorf("get or init client: %w", err)
+			var accountingErr sessionAccountingInitError
+			if r.URL.Path != engine.QueryEndpoint && errors.As(err, &accountingErr) {
+				writeSessionAccountingHTTPError(w, r, httpErr(err, http.StatusInternalServerError))
+				return nil
+			}
 			switch r.URL.Path {
 			case engine.QueryEndpoint:
 				err = gqlErr(err, http.StatusInternalServerError)

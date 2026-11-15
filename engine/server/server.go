@@ -223,6 +223,7 @@ type Server struct {
 	daggerSessionsMu   sync.RWMutex
 	clientDBs          *clientdb.DBs
 	archives           *archive.Manager
+	sessionAccounting  *SessionAccountingStore
 
 	locker *locker.Locker
 
@@ -251,6 +252,9 @@ type NewServerOpts struct {
 	EngineEvents EngineEventExport
 	// WorkloadExport is engine-owned and independent of session Cloud export.
 	WorkloadExport *enginetel.WorkloadExport
+	// SessionAccounting is explicitly introduced native-owned storage. Nil is off.
+	// The host retains it through all sessions and closes it only after Server stops.
+	SessionAccounting *SessionAccountingStore
 }
 
 const (
@@ -276,9 +280,10 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 	}
 
 	srv := &Server{
-		engineName:       opts.Name,
-		engineInstanceID: cmp.Or(opts.EngineInstanceID, uuid.NewString()),
-		workloadExport:   opts.WorkloadExport,
+		engineName:        opts.Name,
+		engineInstanceID:  cmp.Or(opts.EngineInstanceID, uuid.NewString()),
+		workloadExport:    opts.WorkloadExport,
+		sessionAccounting: opts.SessionAccounting,
 
 		rootDir: bkcfg.Root,
 
@@ -1082,6 +1087,7 @@ func (srv *Server) GracefulStop(ctx context.Context) error {
 			if retire {
 				srv.retireSession(s)
 			} else if state == sessionStateUninitialized {
+				err = errors.Join(err, srv.finishSessionAccounting(s, SessionAccountingCleanup{}, errors.New("engine stopped before initialized cleanup proof")))
 				srv.deleteSession(s)
 			}
 		}
