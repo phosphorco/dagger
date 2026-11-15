@@ -270,6 +270,10 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 	cfg := opts.Config
 	bkcfg := opts.BuildkitConfig
 	ociCfg := bkcfg.Workers.OCI
+	parallelismSem, err := newExecutionParallelism(ociCfg.MaxParallelism)
+	if err != nil {
+		return nil, err
+	}
 
 	srv := &Server{
 		engineName:       opts.Name,
@@ -301,7 +305,6 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 	}
 	srv.shutdownCtx, srv.shutdownCancel = context.WithCancelCause(context.Background())
 
-	var err error
 	if err := srv.configureLocalCacheGC(cfg.GC, ociCfg.GCConfig); err != nil {
 		return nil, err
 	}
@@ -519,6 +522,7 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 		Applier:          winlayers.NewFileSystemApplierWithWindows(srv.contentStore, apply.NewFileSystemApplier(srv.contentStore)),
 		Differ:           winlayers.NewWalkingDiffWithWindows(srv.contentStore, walking.NewWalkingDiff(srv.contentStore)),
 		IdentityMapping:  nil, // no idmapping
+		ParallelismSem:   parallelismSem,
 		ExecutorRoot:     srv.executorRootDir,
 		TelemetryPubSub:  srv.telemetryPubSub,
 		SessionHandler:   srv,

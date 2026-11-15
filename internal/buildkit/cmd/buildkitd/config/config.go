@@ -120,7 +120,9 @@ type OCIConfig struct {
 	// SELinux enables applying SELinux labels.
 	SELinux bool `toml:"selinux"`
 
-	// MaxParallelism is the maximum number of parallel build steps that can be run at the same time.
+	// MaxParallelism bounds concurrent no-child container runs across sessions.
+	// Current API leaves declare disableDaggerInDagger=true. Services and
+	// commands retaining Dagger API access are outside this bound. Zero is unlimited.
 	MaxParallelism int `toml:"max-parallelism"`
 }
 
