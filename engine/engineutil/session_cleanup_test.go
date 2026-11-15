@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/dagger/dagger/engine"
+	"github.com/dagger/dagger/engine/session/git"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,4 +42,32 @@ func TestSessionCleanupAccountingRetainsFailureAndUnknownHelpers(t *testing.T) {
 	_, err := helper.NewNetworkNamespace(context.Background(), "no-provider")
 	require.Error(t, err)
 	require.Error(t, helper.ConfirmSessionResourceCleanup(), "unobserved helper cleanup cannot become a false zero")
+}
+
+func TestSessionCleanupAccountingCoversEveryHostServiceHelper(t *testing.T) {
+	sentinel := errors.New("fixture caller unavailable before transport")
+	helpers := map[string]func(context.Context, *Client) error{
+		"PrepareGitSSHAuth": func(ctx context.Context, c *Client) error {
+			_, err := c.PrepareGitSSHAuth(ctx, "ssh://fixture/repo")
+			return err
+		},
+		"CaptureGit": func(ctx context.Context, c *Client) error {
+			_, err := c.CaptureGit(ctx, "fixture", nil, func(git.CaptureGitChunk_Kind, []byte) error { return nil })
+			return err
+		},
+		"ApplyGitBundle": func(ctx context.Context, c *Client) error { return c.ApplyGitBundle(ctx, nil, nil) },
+	}
+	for name, helper := range helpers {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			c := &Client{Opts: &Opts{GetHostServiceCaller: func(context.Context, string) (SessionCaller, error) { calls++; return nil, sentinel }}}
+			c.EnableSessionCleanupAccounting()
+			ctx := engine.ContextWithClientMetadata(t.Context(), &engine.ClientMetadata{ClientID: "fixture"})
+			require.ErrorIs(t, helper(ctx, c), sentinel)
+			require.Equal(t, 1, calls)
+			require.Error(t, c.ConfirmSessionResourceCleanup(), "host helper return is not terminal cleanup proof")
+			require.ErrorContains(t, helper(ctx, c), "resource owner is closed")
+			require.Equal(t, 1, calls, "closed owner must reject before calling resolver")
+		})
+	}
 }

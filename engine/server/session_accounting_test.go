@@ -22,6 +22,7 @@ import (
 	"github.com/dagger/dagger/engine/clientdb"
 	"github.com/dagger/dagger/engine/engineutil"
 	"github.com/stretchr/testify/require"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
 func nativeAccountingFixture(t *testing.T) (*Server, *SessionAccountingStore, string, *engine.ClientMetadata) {
@@ -328,6 +329,82 @@ func TestSessionAccountingStatusDoesNotWaitForLifecycleOwner(t *testing.T) {
 				}
 				require.Equal(t, http.StatusServiceUnavailable, resp.Code)
 			}
+		})
+	}
+}
+
+func TestSessionAccountingDisabledInitializedClientTeardown(t *testing.T) {
+	srv := newTeardownTestServer(t)
+	srv.clientDBs = clientdb.NewDBs(t.TempDir())
+	srv.telemetryPubSub = NewPubSub(srv)
+	sess, _ := newTeardownTestSession(srv, "ordinary-disabled", "root", 0)
+	sess.telemetryPubSub = srv.telemetryPubSub
+	srv.initializeSessionTelemetry(sess, nil)
+	releaseTeardownDrain(sess)
+	var err error
+	sess.engineUtilClient, err = engineutil.NewClient(t.Context(), &engineutil.Opts{})
+	require.NoError(t, err)
+	// Ordinary initialization does not enable cleanup accounting. Neither a nil
+	// store nor a store without an accounted binding may impose its requirement.
+	require.NoError(t, srv.removeDaggerSession(t.Context(), sess))
+}
+
+type accountingFailedMetricReader struct{ *sdkmetric.ManualReader }
+
+func (accountingFailedMetricReader) Shutdown(context.Context) error {
+	return errors.New("original metric shutdown failed")
+}
+
+func TestSessionAccountingRetainsEarlierMetricShutdownFailure(t *testing.T) {
+	for _, path := range []string{"shutdown-endpoint", "quiescent-reclamation"} {
+		t.Run(path, func(t *testing.T) {
+			srv, store, dir, md := nativeAccountingFixture(t)
+			binding := nativeAuthorizeAndBind(t, srv, md)
+			sess := accountingTeardownSession(t, srv, md, binding, false)
+			record := sess.clientRecords[md.ClientID]
+			client := &clientRuntime{clientRecord: record, state: clientStateInitialized,
+				lifecycleLeases: make(map[uint64]clientLifecycleLeaseRecord)}
+			record.accepting = true
+			record.shutdownCh = make(chan struct{})
+			sess.clientRuntimes[md.ClientID] = client
+			client.meterProvider = sdkmetric.NewMeterProvider(sdkmetric.WithReader(
+				accountingFailedMetricReader{sdkmetric.NewManualReader()}))
+			if path == "shutdown-endpoint" {
+				// Hold the accepted request lease so /shutdown itself owns this drain;
+				// releasing it then uses the ordinary quiescent reclamation path.
+				sess.scopeMu.Lock()
+				lease := sess.newClientLifecycleLeaseLocked(client, engine.ClientLeaseRequest, "POST /shutdown")
+				sess.scopeMu.Unlock()
+				req := httptest.NewRequest(http.MethodPost, engine.ShutdownEndpoint, nil)
+				err := srv.serveShutdown(httptest.NewRecorder(), req, client)
+				require.ErrorContains(t, err, "original metric shutdown failed")
+				require.Nil(t, client.meterProvider)
+				require.NoError(t, client.shutdownMetrics(t.Context()), "later provider disposal is a no-op")
+				lease.Release()
+			} else {
+				// The real scope owner runs shutdownMetrics, unpublishes the runtime and
+				// retains only clientRecord. Its logged failure must survive finalization.
+				sess.closeClientScope(client)
+			}
+			require.NotContains(t, sess.clientRuntimes, md.ClientID)
+			require.Same(t, record, sess.clientRecords[md.ClientID])
+			sess.lifecycleMu.Lock()
+			require.NoError(t, srv.removeDaggerSession(t.Context(), sess))
+			sess.lifecycleMu.Unlock()
+			srv.retireSession(sess)
+			response, status := nativeAccountingRequest(t, srv, md, "status", binding, nil)
+			require.Equal(t, http.StatusOK, response.Code)
+			require.Equal(t, "cleanup-uncertain", status.State, "earlier shutdown failure cannot become durable release")
+			require.Nil(t, status.Receipt)
+			require.Contains(t, status.CleanupError, "original metric shutdown failed")
+			require.NoError(t, store.Close())
+			recovered, err := OpenSessionAccountingStore(dir, store.limits)
+			require.NoError(t, err)
+			defer recovered.Close()
+			srv.sessionAccounting = recovered
+			response, replay := nativeAccountingRequest(t, srv, md, "status", binding, nil)
+			require.Equal(t, http.StatusOK, response.Code)
+			require.Equal(t, status, replay)
 		})
 	}
 }

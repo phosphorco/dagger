@@ -1,6 +1,7 @@
 package engineutil
 
 import (
+	"context"
 	"errors"
 	"sync"
 )
@@ -72,4 +73,14 @@ func (c *Client) observeUncoveredSessionResource() error {
 		c.cleanupAccountingUnknown = true
 	}
 	return nil
+}
+
+// Every host-service helper passes this existing routing boundary, including Git
+// SSH/capture/apply APIs. Returning from a helper is not terminal cleanup proof.
+// Opts retains the single native caller resolver; this adds no transport owner.
+func (c *Client) GetHostServiceCaller(ctx context.Context, id string) (SessionCaller, error) {
+	if err := c.observeUncoveredSessionResource(); err != nil {
+		return nil, err
+	}
+	return c.Opts.GetHostServiceCaller(ctx, id)
 }

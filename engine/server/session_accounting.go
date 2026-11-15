@@ -743,3 +743,17 @@ func (srv *Server) sessionAccountingAncestry(md *engine.ClientMetadata, binding 
 	out = SessionAccountingClientVerdict{Binding: binding, ClientID: md.ClientID, ParentClientIDs: append([]string{}, record.parentClientIDs...)}
 	return out, nil
 }
+
+// The stable client record outlives quiescent runtime reclamation. A successful
+// later no-op shutdown cannot erase an earlier owner's actual cleanup failure.
+func (sess *daggerSession) retainedMetricShutdownError() error {
+	var errs error
+	sess.clientMu.RLock()
+	defer sess.clientMu.RUnlock()
+	for id, record := range sess.clientRecords {
+		if failure := record.metricShutdownFailure.Load(); failure != nil {
+			errs = errors.Join(errs, fmt.Errorf("client %s metric shutdown: %s", id, *failure))
+		}
+	}
+	return errs
+}

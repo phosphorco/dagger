@@ -1,5 +1,5 @@
 #!/bin/sh
-# Source-prepared entry; requires Root's exact source/recipe build release.
+# Bounded unpublished source qualification under the existing owning grant.
 set -eu
 proof=tools/session-accounting-proof
 # All imports/caches are private copies. Settings are soft, not CPU/RSS quotas.
@@ -39,6 +39,29 @@ executor_pattern=$(cat "$proof/executor-tests.pattern")
 checkpoint after-server-tests
 /out/cost /out/executor-tests-cost.json /out/executor-accounting.test -test.v -test.count=1 -test.timeout=60s -test.run "$executor_pattern" > /out/executor-green.txt 2>&1
 checkpoint after-executor-tests
+# Reproduce all three review findings with the prior qualified v4 product
+# bytes and the exact same new public witnesses, before running older mutants.
+for target in engine/server/session.go engine/server/session_accounting.go engine/engineutil/session_cleanup.go; do
+  cp "$target" "/out/$(basename "$target").v5-original"
+  cp "/controls/original-qualified-v4/$target" "$target"
+done
+set +e
+/out/cost /out/original-v4-server-cost.json go test -mod=readonly -p=2 -count=1 -timeout=60s -run '^TestSessionAccounting(DisabledInitializedClientTeardown|RetainsEarlierMetricShutdownFailure)$' ./engine/server > /out/original-v4-server.txt 2>&1
+original_server=$?
+/out/cost /out/original-v4-helper-cost.json go test -mod=readonly -p=2 -count=1 -timeout=60s -run '^TestSessionCleanupAccountingCoversEveryHostServiceHelper$' ./engine/engineutil > /out/original-v4-helper.txt 2>&1
+original_helper=$?
+set -e
+printf '%s\n' "$original_server" > /out/original-v4-server.original-exit
+printf '%s\n' "$original_helper" > /out/original-v4-helper.original-exit
+for target in engine/server/session.go engine/server/session_accounting.go engine/engineutil/session_cleanup.go; do
+  cp "/out/$(basename "$target").v5-original" "$target"
+done
+test "$original_server" -eq 1 && test "$original_helper" -eq 1
+grep -Fq -- '--- FAIL: TestSessionAccountingDisabledInitializedClientTeardown' /out/original-v4-server.txt
+grep -Fq -- '--- FAIL: TestSessionAccountingRetainsEarlierMetricShutdownFailure' /out/original-v4-server.txt
+grep -Fq -- '--- FAIL: TestSessionCleanupAccountingCoversEveryHostServiceHelper' /out/original-v4-helper.txt
+if grep -Eq -- '\[build failed\]|panic:|fatal error:|no required module provides|module lookup disabled' /out/original-v4-server.txt /out/original-v4-helper.txt; then exit 1; fi
+checkpoint after-original-v4
 # Preserve actual vet RED1 and raw streams. The separate verifier requires all
 # four original diagnostics and forbids any new/unparsed source diagnostic.
 set +e

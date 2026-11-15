@@ -136,3 +136,42 @@ a live authenticated native request and durable gateway intent. This cut provide
 no generic TTL/absence cleanup or silent tombstone compaction; exhausted native
 retention is explicit unavailability pending a separately reviewed retirement or
 incident-resolution operation. That operational cost is not hidden as progress.
+
+The optional cleanup confirmation is required only for a session with both an
+accounting store and an accounted binding. Ordinary initialized executor clients
+keep their existing teardown behavior. Each stable native client record retains
+the first actual metric-shutdown failure; provider disposal and quiescent runtime
+reclamation cannot erase that failure before accounting finalization. The
+retained error is joined only into the optional accounting outcome.
+
+Host-service helper uncertainty is observed at the existing Client caller-routing
+boundary, including Git SSH auth, capture and apply. The one resolver remains in
+Opts. No new transport, helper lifecycle, or positive terminal guarantee is
+introduced; any observed helper remains uncertain until its owner supplies one.
+The focused review correction adds disabled teardown and prior-shutdown/reclaim
+witnesses, plus each of the three omitted helpers, keeping all original tests,
+assertions and 600/900-second proof bounds.
+
+
+The review correction's v5 offline shared proof completed caller/leaf0 with
+19 selected server cases and9engineutil cases PASS (all original25 plus the three
+focused witnesses). The same new witnesses against unchanged qualified-v4 product
+bytes failed actual named assertions for disabled-accounting teardown, both prior
+metric-shutdown/reclamation paths, and each Git SSH/capture/apply helper. The
+three original behavioral mutants also remained actual assertionREDs. Vet stays
+actualRED1 with the same four baseline diagnostic identities; no assertion,
+selection, deadline, cancellation or execution budget was weakened.
+
+Traceb29ecbe111ed69de69c50511b90a2b82 binds sessionI4CYJQHH3MEVEG6X56BS6CXWWY,
+b2-hel/container7860f9f6a2507f1937152dd8fb2b449a67e8214f28532a9854e326313c1ab84b,
+instancee4e46cad-ead5-4909-9a36-bf2c5c4fc398/native6 and
+cache d847599f-8350-4c80-a0af-fc06eb2d26b5/4. One proof leaf measured296.954809s,
+inclusiveCPU719.953691s and kernel peak6202724352bytes; caller314.567796s.
+Largest observed own-scratch checkpoint5350891520bytes and minimum available
+674057240576bytes passed the unchanged20GiB checkpoint stop/free-space guard.
+These are source-qualification costs including compilation, not live gateway or
+engine workload cost. Soft settings, unknown transient peaks/delivery and absent
+live authoritative cleanup receipt retain the limits described above. Metric
+provider failure fixtures call the real shutdown/scope owners and public durable
+status path; Git negatives stop at the injected native caller resolver before
+transport. They do not assert real SSH-agent or Cloud terminal cleanup.

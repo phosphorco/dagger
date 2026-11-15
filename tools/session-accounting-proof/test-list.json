@@ -16,7 +16,9 @@
     "TestConcurrentReapsSingleTeardown",
     "TestSharedCallSurvivesItsProducersFullSessionTeardown",
     "TestSharedCallSurvivesItsProducersSessionRemoval",
-    "TestSessionAccountingStatusDoesNotWaitForLifecycleOwner"
+    "TestSessionAccountingStatusDoesNotWaitForLifecycleOwner",
+    "TestSessionAccountingDisabledInitializedClientTeardown",
+    "TestSessionAccountingRetainsEarlierMetricShutdownFailure"
   ],
   "engine/engineutil": [
     "TestSessionCleanupAccountingWaitsThroughCleanupAndPermitRelease",
@@ -26,6 +28,7 @@
     "TestExecutionAdmissionActiveCancellationReleases",
     "TestExecutionAdmissionDeclaredNoChildLeafWaitsForSlot",
     "TestExecutionAdmissionDefaultNestedUserCanAwaitCountedChild",
-    "TestExecutionAdmissionCAHelperDoesNotReacquireOuterSlot"
+    "TestExecutionAdmissionCAHelperDoesNotReacquireOuterSlot",
+    "TestSessionCleanupAccountingCoversEveryHostServiceHelper"
   ]
 }

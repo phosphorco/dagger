@@ -325,6 +325,10 @@ type clientRecord struct {
 	// externally returned value is a deep clone of it.
 	metadataSealed bool
 
+	// Retain the first actual metric shutdown failure beyond provider disposal
+	// and runtime reclamation. Accounting finalization reads stable records.
+	metricShutdownFailure atomic.Pointer[string]
+
 	// closed after the shutdown endpoint is called
 	shutdownCh        chan struct{}
 	closeShutdownOnce sync.Once
@@ -817,6 +821,10 @@ func (client *clientRuntime) shutdownMetrics(ctx context.Context) error {
 	errs = errors.Join(errs, client.meterProvider.Shutdown(ctx))
 	client.meterProvider = nil
 	client.metricExporter = nil
+	if errs != nil {
+		failure := errs.Error()
+		client.metricShutdownFailure.CompareAndSwap(nil, &failure)
+	}
 	client.metricMu.Unlock()
 
 	client.stateMu.Lock()
@@ -1346,12 +1354,14 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 	} else {
 		cleanupProof.ClientScopes = "native client scope drain completed"
 	}
-	if sess.engineUtilClient == nil {
-		cleanupProof.ExecHelpersPermits = "native executor client never initialized"
-	} else if err := sess.engineUtilClient.ConfirmSessionResourceCleanup(); err != nil {
-		errs = errors.Join(errs, err)
-	} else {
-		cleanupProof.ExecHelpersPermits = "native execution cleanup and permit release barrier completed"
+	if srv.sessionAccounting != nil && sess.accountingBinding.Generation != 0 {
+		if sess.engineUtilClient == nil {
+			cleanupProof.ExecHelpersPermits = "native executor client never initialized"
+		} else if err := sess.engineUtilClient.ConfirmSessionResourceCleanup(); err != nil {
+			errs = errors.Join(errs, err)
+		} else {
+			cleanupProof.ExecHelpersPermits = "native execution cleanup and permit release barrier completed"
+		}
 	}
 	step.end()
 	sess.schemaBuilderMemo.Store(nil)
@@ -1403,7 +1413,7 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 		cleanupProof.ExecHelpersPermits = ""
 		cleanupErrs = errors.Join(cleanupErrs, errors.New("retained Cloud forwarding has no accounted shared-domain transfer proof"))
 	}
-	errs = errors.Join(errs, srv.finishSessionAccounting(sess, cleanupProof, errors.Join(cleanupErrs, telemetryErr)))
+	errs = errors.Join(errs, srv.finishSessionAccounting(sess, cleanupProof, errors.Join(cleanupErrs, telemetryErr, sess.retainedMetricShutdownError())))
 	teardown.end()
 	sess.phase.end(srv)
 	return errs
