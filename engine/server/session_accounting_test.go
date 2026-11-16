@@ -443,7 +443,7 @@ func TestSessionAccountingRetainedCloudCannotMintRelease(t *testing.T) {
 			tuning := fastCloudForwardTuning()
 			srv.cloudForwardTuning = &tuning
 			forwarder, err := srv.startCloudForwarder(sess.sessionID, md.ClientID, exporter, &forwardTestExporter{}, tuning.shutdownTimeout)
-			require.NoError(t, err)
+			require.NoError(t, err, "cloud-control-fixture-failure: acquire forwarder")
 			sess.cloudForwarder = forwarder
 			t.Cleanup(func() {
 				unblock()
@@ -469,8 +469,9 @@ func TestSessionAccountingRetainedCloudCannotMintRelease(t *testing.T) {
 			}
 			require.True(t, forwarder.isFinished())
 			response, status := nativeAccountingRequest(t, srv, md, "status", binding, nil)
-			require.Equal(t, http.StatusOK, response.Code)
-			require.Equal(t, "cleanup-uncertain", status.State, "finished Cloud is not an accounted shared-domain transfer")
+			require.Equal(t, http.StatusOK, response.Code, "cloud-control-fixture-failure: status unavailable")
+			require.Equal(t, "cleanup-uncertain", status.State,
+				"[cloud-release-state-mismatch test=%s want=cleanup-uncertain got=%s]", t.Name(), status.State)
 			require.Nil(t, status.Receipt)
 			require.Empty(t, status.Cleanup.ExecHelpersPermits)
 			require.Contains(t, status.CleanupError, "retained Cloud forwarding")

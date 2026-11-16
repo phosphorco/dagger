@@ -67,3 +67,15 @@ execution occurred. The new Cloud fixture/mutant assertion and current vet were
 not qualified by that call. PR1's completed review and earlier28-case proof stay
 scoped to c4d01ce; neither is inherited as GREEN for this followup. No unchanged
 retry, budget increase, alternate route or live operation is introduced.
+
+The PR2 discriminator correction requires an assertion-specific
+`cloud-release-state-mismatch` message naming the exact exporter subtest and
+`want=cleanup-uncertain got=released` in **both** shutdown variants, plus their
+actual subtest failures and exit1. Explicit fixture/acquisition errors are
+rejected. Setup failure and top-level test failure alone cannot qualify RED.
+A bounded host stdlib Go diagnostic generated genuine test output for nine
+cases. The original discriminator failed the diagnostic by accepting acquisition,
+status, mixed, unexpected-error, cleanup-error and wrong/prefix-state failures;
+the corrected discriminator passed all nine cases. This qualifies the log
+reader only: the original502 result and unavailable native fixture/vet claim
+above remain unchanged, with no additional native product call.

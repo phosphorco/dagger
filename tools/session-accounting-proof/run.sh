@@ -5,7 +5,7 @@ proof=tools/session-accounting-proof
 # All imports/caches are private copies. Settings are soft, not CPU/RSS quotas.
 test "$(go env GOVERSION)" = go1.27.0
 go version > /out/toolchain.txt
-sha256sum go.mod go.sum sdk/go/go.mod sdk/go/go.sum engine/distconsts/go.mod internal/version/VERSION "$proof"/dagger-module.toml "$proof"/main.dang "$proof"/run.sh "$proof"/server-tests.pattern "$proof"/executor-tests.pattern "$proof"/vet-baseline.json "$proof"/test-list.json "$proof"/cost/main.go "$proof"/verify-vet/main.go > /out/baseline-tool-source.sha256
+sha256sum go.mod go.sum sdk/go/go.mod sdk/go/go.sum engine/distconsts/go.mod internal/version/VERSION "$proof"/dagger-module.toml "$proof"/main.dang "$proof"/run.sh "$proof"/server-tests.pattern "$proof"/executor-tests.pattern "$proof"/vet-baseline.json "$proof"/test-list.json "$proof"/cost/main.go "$proof"/verify-vet/main.go "$proof"/verify-cloud-control.sh > /out/baseline-tool-source.sha256
 # Checkpoints observe only this container's source/output/tmp/module paths. They
 # are NOT a native API quota or a simultaneous physical-host allocation peak.
 # A transient peak between checkpoints is unknown; no background sampler exists.
@@ -96,7 +96,7 @@ control() {
   checkpoint "after-$name"
 }
 control release-without-cleanup engine/server/session_accounting.go ./engine/server '^TestSessionAccounting(HTTPDurableReleaseAndUncertainCleanup|RetainedCloudCannotMintRelease)$' /out/session_accounting.original.go
-grep -Fq -- '--- FAIL: TestSessionAccountingRetainedCloudCannotMintRelease' /out/control-release-without-cleanup.txt
+sh "$proof/verify-cloud-control.sh" /out/control-release-without-cleanup.txt "$(cat /out/control-release-without-cleanup.original-exit)"
 control retained-token-bypass engine/server/session_accounting.go ./engine/server '^TestSessionAccountingHTTPDurableReleaseAndUncertainCleanup$' /out/session_accounting.original.go
 control premature-executor-cleanup engine/engineutil/executor.go ./engine/engineutil '^TestSessionCleanupAccountingWaitsThroughCleanupAndPermitRelease$' /out/executor.original.go
 checkpoint post
