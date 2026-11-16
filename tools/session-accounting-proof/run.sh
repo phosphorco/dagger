@@ -95,7 +95,8 @@ control() {
   if grep -Eq -- '\[build failed\]|panic: test timed out|no required module provides|module lookup disabled' "/out/control-$name.txt"; then exit 1; fi
   checkpoint "after-$name"
 }
-control release-without-cleanup engine/server/session_accounting.go ./engine/server '^TestSessionAccountingHTTPDurableReleaseAndUncertainCleanup$' /out/session_accounting.original.go
+control release-without-cleanup engine/server/session_accounting.go ./engine/server '^TestSessionAccounting(HTTPDurableReleaseAndUncertainCleanup|RetainedCloudCannotMintRelease)$' /out/session_accounting.original.go
+grep -Fq -- '--- FAIL: TestSessionAccountingRetainedCloudCannotMintRelease' /out/control-release-without-cleanup.txt
 control retained-token-bypass engine/server/session_accounting.go ./engine/server '^TestSessionAccountingHTTPDurableReleaseAndUncertainCleanup$' /out/session_accounting.original.go
 control premature-executor-cleanup engine/engineutil/executor.go ./engine/engineutil '^TestSessionCleanupAccountingWaitsThroughCleanupAndPermitRelease$' /out/executor.original.go
 checkpoint post
