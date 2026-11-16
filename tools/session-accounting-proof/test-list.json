@@ -1,0 +1,43 @@
+{
+  "engine/server": [
+    "TestSessionAccountingHTTPAuthBeforeResourceSetup",
+    "TestSessionAccountingHTTPDurableReleaseAndUncertainCleanup",
+    "TestSessionAccountingMissingAndFalseCompletenessNeverRelease",
+    "TestSessionAccountingLostStorageDoesNotRecreateOrAck",
+    "TestSessionAccountingDisabledAndBoundedControls",
+    "TestSessionAccountingRetentionPreservesPriorFacts",
+    "TestSessionAccountingUnobservedExecutorDomainCannotRelease",
+    "TestSessionAccountingMissingCredentialsDoNotCreateState",
+    "TestSessionTeardownFlushesTraceTelemetryAfterMetricShutdown",
+    "TestSessionTeardownHonorsCallerDeadlineForStrandedLease",
+    "TestSameIDConnectDuringBackgroundTeardownGetsRetryable",
+    "TestReapAbandonedWhenMainClientReconnects",
+    "TestFailedSessionInitializationCanRetrySameID",
+    "TestConcurrentReapsSingleTeardown",
+    "TestSharedCallSurvivesItsProducersFullSessionTeardown",
+    "TestSharedCallSurvivesItsProducersSessionRemoval",
+    "TestSessionAccountingStatusDoesNotWaitForLifecycleOwner",
+    "TestSessionAccountingDisabledInitializedClientTeardown",
+    "TestSessionAccountingRetainsEarlierMetricShutdownFailure",
+    "TestSessionAccountingFailedAuthorizePublishesRemovedBeforeUnlock",
+    "TestSessionAccountingPreInitFailureRetainsOnlyExistingRoot",
+    "TestSessionAccountingObservedServicesCannotMintRelease"
+  ],
+  "engine/engineutil": [
+    "TestSessionCleanupAccountingWaitsThroughCleanupAndPermitRelease",
+    "TestSessionCleanupAccountingRetainsFailureAndUnknownHelpers",
+    "TestExecutionAdmissionDeclaredLeavesShareBoundAcrossSessionsAndRelease",
+    "TestExecutionAdmissionHoldsPermitThroughFailureCleanup",
+    "TestExecutionAdmissionActiveCancellationReleases",
+    "TestExecutionAdmissionDeclaredNoChildLeafWaitsForSlot",
+    "TestExecutionAdmissionDefaultNestedUserCanAwaitCountedChild",
+    "TestExecutionAdmissionCAHelperDoesNotReacquireOuterSlot",
+    "TestSessionCleanupAccountingCoversEveryHostServiceHelper"
+  ],
+  "core": [
+    "TestContainerServiceStopCleanup",
+    "TestContainerServiceStopResult",
+    "TestContainerServiceCleanupPublication",
+    "TestServicesAccountingObservationSurvivesRetirement"
+  ]
+}

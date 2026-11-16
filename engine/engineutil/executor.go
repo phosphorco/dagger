@@ -307,6 +307,22 @@ func (c *Client) run(
 	state *execState,
 	setupFuncs ...namedSetupFunc,
 ) (rerr error) {
+	finishAccounting, accountErr := c.beginSessionResourceAccounting(true)
+	if accountErr != nil {
+		return accountErr
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			finishAccounting(errors.New("native executor cleanup did not return"))
+			panic(p)
+		}
+		var cleanupErr *ExecCleanupError
+		if errors.As(rerr, &cleanupErr) {
+			finishAccounting(cleanupErr)
+		} else {
+			finishAccounting(nil)
+		}
+	}()
 	// The bound covers no-child container runs across all sessions. In the
 	// current API, callers declare those leaves with disableDaggerInDagger.
 	// Commands retaining default nested API access are outside this domain.
@@ -411,6 +427,11 @@ func (n *networkNamespace) Release(_ context.Context) error {
 }
 
 func (c *Client) newNetNS(ctx context.Context, hostname string) (_ *networkNamespace, rerr error) {
+	finishAccounting, accountErr := c.beginSessionResourceAccounting(false)
+	if accountErr != nil {
+		return nil, accountErr
+	}
+	defer func() { finishAccounting(nil) }()
 	provider, ok := c.NetworkProviders[pb.NetMode_UNSET] // get default CNI provider
 	if !ok {
 		return nil, fmt.Errorf("no default network provider found")
@@ -455,6 +476,11 @@ func (c *Client) newNetNS(ctx context.Context, hostname string) (_ *networkNames
 }
 
 func (c *Client) Exec(ctx context.Context, id string, process executor.ProcessInfo) (err error) {
+	finishAccounting, accountErr := c.beginSessionResourceAccounting(false)
+	if accountErr != nil {
+		return accountErr
+	}
+	defer func() { finishAccounting(nil) }()
 	if err := c.validateEntitlements(process.Meta); err != nil {
 		return err
 	}

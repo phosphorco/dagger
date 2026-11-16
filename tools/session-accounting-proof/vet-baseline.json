@@ -1,0 +1,50 @@
+[
+  {
+    "column": 7,
+    "file": "engine/engineutil/executor.go",
+    "function_bytes": 1878,
+    "function_sha256": "6331c6fb57d23ed98448fe870c58fc1517043c15706a112ae912514ba0a635de",
+    "function_signature": "func (k procKiller) Kill(ctx context.Context) (err error) {",
+    "line": 678,
+    "message": "the cancel function returned by context.WithTimeoutCause should be called, not discarded, to avoid a context leak",
+    "raw_diagnostic": "engine/engineutil/executor.go:678:7: the cancel function returned by context.WithTimeoutCause should be called, not discarded, to avoid a context leak\n",
+    "source_expression_exact": "\tctx, _ = context.WithTimeoutCause(ctx, 10*time.Second, context.DeadlineExceeded)\n",
+    "source_expression_sha256": "1166cac7accc0d2d65c84e9ba646f0122138a28c696964321506e82bc0f01d31"
+  },
+  {
+    "column": 14,
+    "file": "engine/engineutil/executor.go",
+    "function_bytes": 1476,
+    "function_sha256": "0032b3f3f58b127d8294c59d3f86962356c6c1b0869bd7cc7dc1e9a601bbdd09",
+    "function_signature": "func runcProcessHandle(ctx context.Context, killer procKiller) (*procHandle, context.Context) {",
+    "line": 763,
+    "message": "the cancel function returned by context.WithTimeoutCause should be called, not discarded, to avoid a context leak",
+    "raw_diagnostic": "engine/engineutil/executor.go:763:14: the cancel function returned by context.WithTimeoutCause should be called, not discarded, to avoid a context leak\n",
+    "source_expression_exact": "\t\t\t\tkillCtx, _ = context.WithTimeoutCause(killCtx, 7*time.Second, context.DeadlineExceeded)\n",
+    "source_expression_sha256": "2579c0d580bc6f13114fe779d8fe29a8e34ae040a50e9ad4bcc11ef5f5d366f7"
+  },
+  {
+    "column": 7,
+    "file": "engine/engineutil/executor.go",
+    "function_bytes": 730,
+    "function_sha256": "bb7998d397964118725821a8d806ba96ff992b71cd6635e6988144a2d965b727",
+    "function_signature": "func (p *procHandle) WaitForStart(ctx context.Context, startedCh <-chan int, started func()) error {",
+    "line": 830,
+    "message": "the cancel function returned by context.WithTimeoutCause should be called, not discarded, to avoid a context leak",
+    "raw_diagnostic": "engine/engineutil/executor.go:830:7: the cancel function returned by context.WithTimeoutCause should be called, not discarded, to avoid a context leak\n",
+    "source_expression_exact": "\tctx, _ = context.WithTimeoutCause(ctx, 10*time.Second, context.DeadlineExceeded)\n",
+    "source_expression_sha256": "1166cac7accc0d2d65c84e9ba646f0122138a28c696964321506e82bc0f01d31"
+  },
+  {
+    "column": 14,
+    "file": "engine/server/session_attachables.go",
+    "function_bytes": 1782,
+    "function_sha256": "9f5885364981dc3e649af512525a94ca425d9afd7326c9d268b56e6785bcba6b",
+    "function_signature": "func monitorAttachableHealth(ctx context.Context, cc *grpc.ClientConn, cancelConn func(error)) {",
+    "line": 285,
+    "message": "the cancel function returned by context.WithTimeoutCause should be called, not discarded, to avoid a context leak",
+    "raw_diagnostic": "engine/server/session_attachables.go:285:14: the cancel function returned by context.WithTimeoutCause should be called, not discarded, to avoid a context leak\n",
+    "source_expression_exact": "\t\t\tcheckCtx, _ = context.WithTimeoutCause(checkCtx, timeout, context.DeadlineExceeded)\n",
+    "source_expression_sha256": "18cd0f11bd390746f6bdf378dfba7a1e6a68e77e1b9af38eedf1fdc2f4fffdf8"
+  }
+]

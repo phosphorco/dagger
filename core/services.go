@@ -54,7 +54,10 @@ type Services struct {
 	// usable after a crash; entries are dropped when the session's services
 	// are stopped, and capped at MaxExitedServicesPerSession.
 	exited map[string][]*ExitedService
-	l      sync.Mutex
+	// Sticky owner-local observation, independent of capped listing tombstones.
+	// It is not a terminal cleanup outcome and has no reset transition.
+	observedStarts bool
+	l              sync.Mutex
 }
 
 type startingService struct {
@@ -176,6 +179,15 @@ func NewServices() *Services {
 		bindings: map[ServiceKey]int{},
 		exited:   map[string][]*ExitedService{},
 	}
+}
+
+// HasObservedStarts reports whether this service owner has ever entered a start
+// attempt. False can attest an empty owner after producers drain; true cannot
+// attest successful cleanup, even after every service is retired.
+func (ss *Services) HasObservedStarts() bool {
+	ss.l.Lock()
+	defer ss.l.Unlock()
+	return ss.observedStarts
 }
 
 // ExitedService is a tombstone for a service that ran and has since exited.
@@ -1240,6 +1252,7 @@ func (ss *Services) startWithKey(
 
 	for {
 		ss.l.Lock()
+		ss.observedStarts = true // before any Startable or resource acquisition
 		starting, isStarting := ss.starting[key]
 		running, isRunning := ss.running[key]
 		isStopping := ss.bindings[key] == 0
