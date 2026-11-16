@@ -18,7 +18,10 @@
     "TestSharedCallSurvivesItsProducersSessionRemoval",
     "TestSessionAccountingStatusDoesNotWaitForLifecycleOwner",
     "TestSessionAccountingDisabledInitializedClientTeardown",
-    "TestSessionAccountingRetainsEarlierMetricShutdownFailure"
+    "TestSessionAccountingRetainsEarlierMetricShutdownFailure",
+    "TestSessionAccountingFailedAuthorizePublishesRemovedBeforeUnlock",
+    "TestSessionAccountingPreInitFailureRetainsOnlyExistingRoot",
+    "TestSessionAccountingObservedServicesCannotMintRelease"
   ],
   "engine/engineutil": [
     "TestSessionCleanupAccountingWaitsThroughCleanupAndPermitRelease",
@@ -30,5 +33,11 @@
     "TestExecutionAdmissionDefaultNestedUserCanAwaitCountedChild",
     "TestExecutionAdmissionCAHelperDoesNotReacquireOuterSlot",
     "TestSessionCleanupAccountingCoversEveryHostServiceHelper"
+  ],
+  "core": [
+    "TestContainerServiceStopCleanup",
+    "TestContainerServiceStopResult",
+    "TestContainerServiceCleanupPublication",
+    "TestServicesAccountingObservationSurvivesRetirement"
   ]
 }

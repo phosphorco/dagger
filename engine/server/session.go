@@ -1268,12 +1268,13 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 	// session's telemetry is itself shut down here.
 	teardown := sess.phase.beginTeardown()
 
+	serviceStopCompleted := false
 	step := teardown.beginStep("session.stopServices")
 	if err := sess.services.StopSessionServices(ctx, sess.sessionID); err != nil {
 		slog.Warn("error stopping services", "error", err)
 		errs = errors.Join(errs, fmt.Errorf("stop client services: %w", err))
 	} else {
-		cleanupProof.Services = "native services stop completed"
+		serviceStopCompleted = true
 	}
 
 	step.end()
@@ -1413,7 +1414,16 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 		cleanupProof.ExecHelpersPermits = ""
 		cleanupErrs = errors.Join(cleanupErrs, errors.New("retained Cloud forwarding has no accounted shared-domain transfer proof"))
 	}
-	errs = errors.Join(errs, srv.finishSessionAccounting(sess, cleanupProof, errors.Join(cleanupErrs, telemetryErr, sess.retainedMetricShutdownError())))
+	// Read the sticky owner observation after producer barriers, not merely
+	// after StopSessionServices: retired entries and listing tombstones can have
+	// forgotten cleanup failures, and in-flight producers may have tried starts.
+	var serviceAccountingErr error
+	if sess.services.HasObservedStarts() {
+		serviceAccountingErr = errors.New("observed native services have no retained positive cleanup outcome")
+	} else if serviceStopCompleted {
+		cleanupProof.Services = "native service owner observed no starts"
+	}
+	errs = errors.Join(errs, srv.finishSessionAccounting(sess, cleanupProof, errors.Join(cleanupErrs, telemetryErr, sess.retainedMetricShutdownError(), serviceAccountingErr)))
 	teardown.end()
 	sess.phase.end(srv)
 	return errs
@@ -2054,7 +2064,13 @@ func (srv *Server) getOrInitClient(
 	// Authentication/intent validation precedes initialization. A refused caller
 	// cannot destroy a valid staged root or trigger failure cleanup on its behalf.
 	if err := srv.checkSessionAccountingBeforeInit(sess, opts.ClientMetadata, opts.RootClient); err != nil {
+		if createdSession {
+			sess.markSessionRemoved()
+		}
 		sess.lifecycleMu.Unlock()
+		if createdSession {
+			srv.deleteSession(sess)
+		}
 		return nil, nil, sessionAccountingInitError{err}
 	}
 	initializingSession := sess.state.Load() == sessionStateUninitialized

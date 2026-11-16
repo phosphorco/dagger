@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/clientdb"
 	"github.com/dagger/dagger/engine/engineutil"
+	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/require"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
@@ -397,6 +399,157 @@ func TestSessionAccountingRetainsEarlierMetricShutdownFailure(t *testing.T) {
 			require.Equal(t, "cleanup-uncertain", status.State, "earlier shutdown failure cannot become durable release")
 			require.Nil(t, status.Receipt)
 			require.Contains(t, status.CleanupError, "original metric shutdown failed")
+			require.NoError(t, store.Close())
+			recovered, err := OpenSessionAccountingStore(dir, store.limits)
+			require.NoError(t, err)
+			defer recovered.Close()
+			srv.sessionAccounting = recovered
+			response, replay := nativeAccountingRequest(t, srv, md, "status", binding, nil)
+			require.Equal(t, http.StatusOK, response.Code)
+			require.Equal(t, status, replay)
+		})
+	}
+}
+
+func TestSessionAccountingFailedAuthorizePublishesRemovedBeforeUnlock(t *testing.T) {
+	srv, store, _, md := nativeAccountingFixture(t)
+	// Occupy the writer so the real public authorize request publishes a fresh
+	// session with lifecycleMu held before native authorization can fail full.
+	for i := 0; i < store.limits.Records; i++ {
+		other := *md
+		other.SessionID = fmt.Sprintf("full-%d", i)
+		_, err := store.authorize(srv.engineInstanceID, &other, "descriptor")
+		require.NoError(t, err)
+	}
+	tx, err := store.db.Begin(true)
+	require.NoError(t, err)
+	var rollback sync.Once
+	unblock := func() { rollback.Do(func() { require.NoError(t, tx.Rollback()) }) }
+	defer unblock()
+	response := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		out, _ := nativeAccountingRequest(t, srv, md, "authorize", SessionAccountingBinding{EngineEpoch: srv.engineInstanceID, SessionID: md.SessionID, RootClientID: md.ClientID, DescriptorRef: "descriptor"}, nil)
+		response <- out
+	}()
+	var sess *daggerSession
+	require.Eventually(t, func() bool {
+		srv.daggerSessionsMu.RLock()
+		sess = srv.daggerSessions[md.SessionID]
+		srv.daggerSessionsMu.RUnlock()
+		return sess != nil
+	}, time.Second, time.Millisecond)
+	// A same-ID initializer can already retain this exact pointer. Keep deletion
+	// blocked at the actual registry lock while the lifecycle lock hands over.
+	srv.daggerSessionsMu.Lock()
+	var unlock sync.Once
+	releaseRegistry := func() { unlock.Do(srv.daggerSessionsMu.Unlock) }
+	defer releaseRegistry()
+	observed := make(chan daggerSessionState, 1)
+	go func() { sess.lifecycleMu.Lock(); observed <- sess.state.Load(); sess.lifecycleMu.Unlock() }()
+	unblock()
+	var observedState daggerSessionState
+	select {
+	case observedState = <-observed:
+	case <-time.After(time.Second):
+		t.Fatal("same-ID lifecycle waiter did not acquire after authorization refusal")
+	}
+	releaseRegistry()
+	var out *httptest.ResponseRecorder
+	select {
+	case out = <-response:
+	case <-time.After(time.Second):
+		t.Fatal("public failed authorization did not finish")
+	}
+	require.Equal(t, sessionStateRemoved, observedState, "failed fresh authorization unlocked a reusable session before deletion")
+	require.Equal(t, http.StatusConflict, out.Code)
+	require.False(t, sessionInRegistry(srv, md.SessionID))
+	require.False(t, sessionIDReleased(srv, md.SessionID), "failed bootstrap must not permanently retire an unused ID")
+}
+
+func TestSessionAccountingPreInitFailureRetainsOnlyExistingRoot(t *testing.T) {
+	for _, staged := range []bool{false, true} {
+		t.Run(map[bool]string{false: "newly-created", true: "existing-staged-root"}[staged], func(t *testing.T) {
+			srv, store, _, md := nativeAccountingFixture(t)
+			var previous *daggerSession
+			if staged {
+				nativeAuthorizeAndBind(t, srv, md)
+				previous = srv.daggerSessions[md.SessionID]
+			}
+			require.NoError(t, os.Rename(store.path, store.path+".retained"))
+			req := httptest.NewRequest(http.MethodPost, engine.InitEndpoint, strings.NewReader("{}"))
+			req.Header = md.AppendToHTTPHeaders(req.Header)
+			out := httptest.NewRecorder()
+			srv.ServeHTTP(out, req)
+			require.NotEqual(t, http.StatusOK, out.Code)
+			if staged {
+				require.Same(t, previous, srv.daggerSessions[md.SessionID], "rejected caller must retain the existing authorized root")
+				require.Equal(t, sessionStateUninitialized, previous.state.Load())
+			} else {
+				require.False(t, sessionInRegistry(srv, md.SessionID), "failed accounting read leaked the newly created rejected session")
+			}
+			require.False(t, sessionIDReleased(srv, md.SessionID))
+		})
+	}
+}
+
+// A process fixture enters the actual core Services owner. Its cleanup outcome
+// is returned by the service callbacks, then retired by the real exit watcher.
+type accountingRetiredService struct {
+	exited     chan struct{}
+	cleanupErr error
+	failStart  bool
+}
+
+func (f *accountingRetiredService) Start(_ context.Context, r *core.RunningService, _ digest.Digest, _ core.ServiceStartOpts) error {
+	if f.failStart {
+		return f.cleanupErr
+	}
+	r.Stop = func(context.Context, bool) error { return f.cleanupErr }
+	r.Wait = func(ctx context.Context) error {
+		select {
+		case <-f.exited:
+			return f.cleanupErr
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		}
+	}
+	return nil
+}
+func TestSessionAccountingObservedServicesCannotMintRelease(t *testing.T) {
+	for _, mode := range []string{"retired-success", "retired-cleanup-error", "failed-start"} {
+		t.Run(mode, func(t *testing.T) {
+			srv, store, dir, md := nativeAccountingFixture(t)
+			binding := nativeAuthorizeAndBind(t, srv, md)
+			sess := accountingTeardownSession(t, srv, md, binding, false)
+			service := &accountingRetiredService{exited: make(chan struct{}), failStart: mode == "failed-start"}
+			if mode != "retired-success" {
+				service.cleanupErr = errors.New("service-owned mount/output cleanup failed")
+			}
+			ctx := engine.ContextWithClientMetadata(t.Context(), md)
+			_, err := sess.services.Start(ctx, digest.FromString("accounted-service"), service, false)
+			if service.failStart {
+				require.ErrorIs(t, err, service.cleanupErr)
+			} else {
+				require.NoError(t, err)
+				close(service.exited)
+				require.Eventually(t, func() bool { return len(sess.services.ExitedServices(md.SessionID)) == 1 }, time.Second, time.Millisecond)
+			}
+			require.Empty(t, sess.services.RunningServices(md.SessionID))
+			require.NoError(t, sess.services.StopSessionServices(ctx, md.SessionID), "nil stop after retirement is not a retained cleanup outcome")
+			require.Empty(t, sess.services.ExitedServices(md.SessionID), "listing tombstones were actually removed")
+			sess.lifecycleMu.Lock()
+			err = srv.removeDaggerSession(t.Context(), sess)
+			sess.lifecycleMu.Unlock()
+			require.NoError(t, err, "do not change ordinary service stop return semantics")
+			srv.retireSession(sess)
+			response, status := nativeAccountingRequest(t, srv, md, "status", binding, nil)
+			require.Equal(t, http.StatusOK, response.Code)
+			require.Equal(t, "cleanup-uncertain", status.State, "[service-cleanup-proof-mismatch test=%s got=%s]", t.Name(), status.State)
+			require.Nil(t, status.Receipt)
+			require.Empty(t, status.Cleanup.Services)
+			require.Contains(t, status.CleanupError, "observed native services")
+			response, _ = nativeAccountingRequest(t, srv, md, "ack", binding, &NativeSessionReleaseReceipt{ReceiptID: "retired-service", NativeSequence: status.Sequence})
+			require.Equal(t, http.StatusConflict, response.Code)
 			require.NoError(t, store.Close())
 			recovered, err := OpenSessionAccountingStore(dir, store.limits)
 			require.NoError(t, err)

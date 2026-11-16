@@ -175,3 +175,54 @@ live authoritative cleanup receipt retain the limits described above. Metric
 provider failure fixtures call the real shutdown/scope owners and public durable
 status path; Git negatives stop at the injected native caller resolver before
 transport. They do not assert real SSH-agent or Cloud terminal cleanup.
+
+Second independent review correction (source preparation; proofs queued):
+StopSessionServices returning nil does not retain retired-service cleanup errors.
+The existing per-session core.Services owner now folds one sticky observed-start
+fact under its mutex, before any Startable. It has only a read-only observation;
+there is no map, reset, lifecycle facade or positive service-cleanup promise.
+After the producer barriers, native accounting certifies the service domain only
+when this owner positively observed no start and the stop phase returned nil.
+Any observed successful/failed/retired start keeps service cleanup uncertain,
+including lost mount/output/tracked-ref release outcomes and erased listing
+history. Ordinary service stop/return behavior is unchanged. Complete positive
+service cleanup remains a future existing-owner outcome contract, not a result
+of executable scope drain, capped tombstones or stop/list absence.
+
+Fresh failed native authorization now publishes removed while lifecycleMu is
+still held before unlock/pointer-conditional registry removal. A failed native
+accounting read before initialization similarly removes only a session created
+by that rejected request. It preserves a preexisting staged root and does not
+permanently retire a never-initialized ID. Named public/owner-lock witnesses and
+one focused internal core retirement/ref-release test are prepared. The original
+c4d01ce owner bytes must first fail the three new mechanism assertions; the same
+witnesses must then pass corrected source, with all original tests/controls and
+the600s-leaf/900s-caller/60s-test limits intact. One extra core test executable is
+inside that existing total bound, with actual compile/link cost still unknown.
+
+Owner STOP suspends all Dagger/native/test/check/quality execution until capacity
+is explicitly restored. These changes have no current executed qualification;
+prior source/proofs/reviews and PR2's frozen36aad7e/600s partial world remain
+preserved. No host compiler/test runner, route/health/cache/fleet/N operation,
+activation or enforcement follows from this source preparation.
+
+Source banking is authorized independently of the scarce proof slot. The
+second-review correction and all new originalRED/corrected compile/runtime/
+control evidence remain UNQUALIFIED/queued; prior proofs do not transfer.
+The existing `result` function and its original selections/controls/vet history
+remain preserved, but its600-second batch is not released for execution.
+Three separately named future demands avoid replaying that history:
+
+| Proof function | Explicit source build and only executed witnesses |
+| --- | --- |
+| `original` | Compile one server test executable after substituting only exactc4d session.go/session_accounting.go; run the three new mechanism cases and require their assertion-specific REDs. The new test source and core observation remain the same as corrected source. |
+| `corrected` | Compile one server test executable from corrected source; run the three new cases plus existing empty-domain/cleanup-error positive/negative control. |
+| `services` | Compile one core test executable; run only the new four-mode actual retirement/ref-release owner witness. |
+
+Each uses the unchanged pinned offline container/private empty build cache and
+600s+5leaf/900s+5caller/60s-test bounds. Every compilation/link is real and timed;
+no host binary/cache, substitute SDK or hidden prebuild replaces it. These are
+separate owner artifacts, not an automatic sequence or aggregate demand. Actual
+cold compile/link cost and all three results are UNKNOWN until the steward
+selects that specific demand. No Dagger/help/compiler/test/check/quality or CI
+call is released by source banking or this decomposition.

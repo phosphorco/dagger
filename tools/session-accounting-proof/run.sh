@@ -5,7 +5,7 @@ proof=tools/session-accounting-proof
 # All imports/caches are private copies. Settings are soft, not CPU/RSS quotas.
 test "$(go env GOVERSION)" = go1.27.0
 go version > /out/toolchain.txt
-sha256sum go.mod go.sum sdk/go/go.mod sdk/go/go.sum engine/distconsts/go.mod internal/version/VERSION "$proof"/dagger-module.toml "$proof"/main.dang "$proof"/run.sh "$proof"/server-tests.pattern "$proof"/executor-tests.pattern "$proof"/vet-baseline.json "$proof"/test-list.json "$proof"/cost/main.go "$proof"/verify-vet/main.go > /out/baseline-tool-source.sha256
+sha256sum go.mod go.sum sdk/go/go.mod sdk/go/go.sum engine/distconsts/go.mod internal/version/VERSION "$proof"/dagger-module.toml "$proof"/main.dang "$proof"/run.sh "$proof"/server-tests.pattern "$proof"/executor-tests.pattern "$proof"/core-tests.pattern "$proof"/vet-baseline.json "$proof"/test-list.json "$proof"/cost/main.go "$proof"/verify-vet/main.go > /out/baseline-tool-source.sha256
 # Checkpoints observe only this container's source/output/tmp/module paths. They
 # are NOT a native API quota or a simultaneous physical-host allocation peak.
 # A transient peak between checkpoints is unknown; no background sampler exists.
@@ -26,12 +26,41 @@ date -u +%FT%TZ > /out/wrapper-build-start.txt
 go build -mod=readonly -trimpath -buildvcs=false -o /out/cost "$proof/cost/main.go"
 date -u +%FT%TZ > /out/wrapper-build-end.txt
 /out/cost /out/compile-vet-verifier-cost.json go build -mod=readonly -trimpath -buildvcs=false -o /out/verify-vet "$proof/verify-vet/main.go" > /out/compile-vet-verifier.txt 2>&1
-/out/cost /out/module-closure-cost.json go list -mod=readonly -deps -test -json ./engine/server ./engine/engineutil > /out/module-package-closure.json 2> /out/module-closure.stderr
+/out/cost /out/module-closure-cost.json go list -mod=readonly -deps -test -json ./engine/server ./engine/engineutil ./core > /out/module-package-closure.json 2> /out/module-closure.stderr
+# The three second-review witnesses first run on exact original c4d01ce native
+# owner bytes, against the same new tests and conservative core observation.
+# Actual assertion-specific RED is mandatory; setup/compile/timeout is not RED.
+cp engine/server/session.go /out/session.current.go
+cp engine/server/session_accounting.go /out/session_accounting.current.go
+cp /controls/original-c4-session.go engine/server/session.go
+cp /controls/original-c4-session_accounting.go engine/server/session_accounting.go
+set +e
+/out/cost /out/original-c4-cost.json go test -mod=readonly -p=2 -count=1 -timeout=60s -run '^TestSessionAccounting(FailedAuthorizePublishesRemovedBeforeUnlock|PreInitFailureRetainsOnlyExistingRoot|ObservedServicesCannotMintRelease)$' ./engine/server > /out/original-c4.txt 2>&1
+c4_exit=$?
+set -e
+printf '%s\n' "$c4_exit" > /out/original-c4.original-exit
+cp /out/session.current.go engine/server/session.go
+cp /out/session_accounting.current.go engine/server/session_accounting.go
+test "$c4_exit" -eq 1
+for witness in FailedAuthorizePublishesRemovedBeforeUnlock PreInitFailureRetainsOnlyExistingRoot ObservedServicesCannotMintRelease; do
+ grep -Fq -- "--- FAIL: TestSessionAccounting$witness" /out/original-c4.txt
+done
+grep -Fq -- 'failed fresh authorization unlocked a reusable session before deletion' /out/original-c4.txt
+grep -Fq -- 'failed accounting read leaked the newly created rejected session' /out/original-c4.txt
+for variant in retired-success retired-cleanup-error failed-start; do
+ grep -Fq -- "[service-cleanup-proof-mismatch test=TestSessionAccountingObservedServicesCannotMintRelease/$variant got=released]" /out/original-c4.txt
+done
+if grep -Eq -- 'Received unexpected error:|\[build failed\]|panic:|fatal error:|no required module provides|module lookup disabled' /out/original-c4.txt; then exit 1; fi
+checkpoint after-original-c4
 checkpoint before-server
 /out/cost /out/compile-server-cost.json go test -mod=readonly -p=2 -c -o /out/server-accounting.test ./engine/server > /out/compile-server.txt 2>&1
 checkpoint after-server
 /out/cost /out/compile-executor-cost.json go test -mod=readonly -p=2 -c -o /out/executor-accounting.test ./engine/engineutil > /out/compile-executor.txt 2>&1
 checkpoint after-executor
+# One additional focused internal core executable, using the same private cache
+# and package closure within the unchanged whole-leaf/caller bounds.
+/out/cost /out/compile-core-cost.json go test -mod=readonly -p=2 -c -o /out/core-accounting.test ./core > /out/compile-core.txt 2>&1
+checkpoint after-core
 # Exact reviewed name lists, never a package-wide execution or unrelated tests.
 server_pattern=$(cat "$proof/server-tests.pattern")
 executor_pattern=$(cat "$proof/executor-tests.pattern")
@@ -39,6 +68,9 @@ executor_pattern=$(cat "$proof/executor-tests.pattern")
 checkpoint after-server-tests
 /out/cost /out/executor-tests-cost.json /out/executor-accounting.test -test.v -test.count=1 -test.timeout=60s -test.run "$executor_pattern" > /out/executor-green.txt 2>&1
 checkpoint after-executor-tests
+core_pattern=$(cat "$proof/core-tests.pattern")
+/out/cost /out/core-tests-cost.json /out/core-accounting.test -test.v -test.count=1 -test.timeout=60s -test.run "$core_pattern" > /out/core-green.txt 2>&1
+checkpoint after-core-tests
 # Reproduce all three review findings with the prior qualified v4 product
 # bytes and the exact same new public witnesses, before running older mutants.
 for target in engine/server/session.go engine/server/session_accounting.go engine/engineutil/session_cleanup.go; do
@@ -99,4 +131,4 @@ control release-without-cleanup engine/server/session_accounting.go ./engine/ser
 control retained-token-bypass engine/server/session_accounting.go ./engine/server '^TestSessionAccountingHTTPDurableReleaseAndUncertainCleanup$' /out/session_accounting.original.go
 control premature-executor-cleanup engine/engineutil/executor.go ./engine/engineutil '^TestSessionCleanupAccountingWaitsThroughCleanupAndPermitRelease$' /out/executor.original.go
 checkpoint post
-sha256sum /out/server-accounting.test /out/executor-accounting.test /out/*-cost.json > /out/result.sha256
+sha256sum /out/server-accounting.test /out/executor-accounting.test /out/core-accounting.test /out/*-cost.json > /out/result.sha256

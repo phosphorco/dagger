@@ -603,6 +603,9 @@ func (srv *Server) authorizeSessionAccountingRoot(md *engine.ClientMetadata, des
 	}
 	successful := false
 	defer func() {
+		if created && !successful {
+			sess.markSessionRemoved()
+		}
 		sess.lifecycleMu.Unlock()
 		if created && !successful {
 			srv.deleteSession(sess)
