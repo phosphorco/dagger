@@ -408,3 +408,91 @@ func TestSessionAccountingRetainsEarlierMetricShutdownFailure(t *testing.T) {
 		})
 	}
 }
+
+// The native Cloud owner releases asynchronously and logs exporter failures.
+// Neither finish nor done attests an accounted transfer or successful cleanup.
+// These exporters stay in-process and never acquire Cloud credentials/network.
+type accountingCloudShutdownFixture struct {
+	forwardTestExporter
+	entered chan struct{}
+	release chan struct{}
+	fail    bool
+}
+
+func (e *accountingCloudShutdownFixture) Shutdown(context.Context) error {
+	e.shutdowns.Add(1)
+	close(e.entered)
+	// This in-process gate has one test owner, whose cleanup always unblocks
+	// it. A clock deadline must not substitute for the explicit release.
+	<-e.release
+	if e.fail {
+		return errors.New("fixture Cloud exporter shutdown failed")
+	}
+	return nil
+}
+
+func TestSessionAccountingRetainedCloudCannotMintRelease(t *testing.T) {
+	for _, failed := range []bool{false, true} {
+		t.Run(map[bool]string{false: "successful-exporter-shutdown", true: "failed-exporter-shutdown"}[failed], func(t *testing.T) {
+			srv, store, dir, md := nativeAccountingFixture(t)
+			binding := nativeAuthorizeAndBind(t, srv, md)
+			sess := accountingTeardownSession(t, srv, md, binding, false)
+			exporter := &accountingCloudShutdownFixture{entered: make(chan struct{}), release: make(chan struct{}), fail: failed}
+			var release sync.Once
+			unblock := func() { release.Do(func() { close(exporter.release) }) }
+			tuning := fastCloudForwardTuning()
+			srv.cloudForwardTuning = &tuning
+			forwarder, err := srv.startCloudForwarder(sess.sessionID, md.ClientID, exporter, &forwardTestExporter{}, tuning.shutdownTimeout)
+			require.NoError(t, err, "cloud-control-fixture-failure: acquire forwarder")
+			sess.cloudForwarder = forwarder
+			t.Cleanup(func() {
+				unblock()
+				forwarder.stop(errors.New("fixture cleanup"))
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				require.NoError(t, forwarder.waitReleased(ctx))
+			})
+			sess.lifecycleMu.Lock()
+			err = srv.removeDaggerSession(t.Context(), sess)
+			sess.lifecycleMu.Unlock()
+			require.NoError(t, err)
+			srv.retireSession(sess)
+			select {
+			case <-exporter.entered:
+			case <-time.After(3 * time.Second):
+				t.Fatal("existing Cloud release owner did not reach exporter shutdown")
+			}
+			select {
+			case <-forwarder.done:
+				t.Fatal("fixture did not retain Cloud cleanup after session removal")
+			default:
+			}
+			require.True(t, forwarder.isFinished())
+			response, status := nativeAccountingRequest(t, srv, md, "status", binding, nil)
+			require.Equal(t, http.StatusOK, response.Code, "cloud-control-fixture-failure: status unavailable")
+			require.Equal(t, "cleanup-uncertain", status.State,
+				"[cloud-release-state-mismatch test=%s want=cleanup-uncertain got=%s]", t.Name(), status.State)
+			require.Nil(t, status.Receipt)
+			require.Empty(t, status.Cleanup.ExecHelpersPermits)
+			require.Contains(t, status.CleanupError, "retained Cloud forwarding")
+			unblock()
+			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+			defer cancel()
+			require.NoError(t, forwarder.waitReleased(ctx), "waitReleased reports owner exit even when exporter shutdown fails")
+			require.EqualValues(t, 1, exporter.shutdowns.Load())
+			response, after := nativeAccountingRequest(t, srv, md, "status", binding, nil)
+			require.Equal(t, http.StatusOK, response.Code)
+			require.Equal(t, status, after, "forwarder exit cannot retroactively mint a durable release")
+			response, _ = nativeAccountingRequest(t, srv, md, "ack", binding, &NativeSessionReleaseReceipt{ReceiptID: "cloud-finished", NativeSequence: status.Sequence})
+			require.Equal(t, http.StatusConflict, response.Code)
+			require.NoError(t, store.Close())
+			recovered, err := OpenSessionAccountingStore(dir, store.limits)
+			require.NoError(t, err)
+			defer recovered.Close()
+			srv.sessionAccounting = recovered
+			response, after = nativeAccountingRequest(t, srv, md, "status", binding, nil)
+			require.Equal(t, http.StatusOK, response.Code)
+			require.Equal(t, status, after)
+		})
+	}
+}

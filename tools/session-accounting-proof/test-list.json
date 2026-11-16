@@ -18,7 +18,8 @@
     "TestSharedCallSurvivesItsProducersSessionRemoval",
     "TestSessionAccountingStatusDoesNotWaitForLifecycleOwner",
     "TestSessionAccountingDisabledInitializedClientTeardown",
-    "TestSessionAccountingRetainsEarlierMetricShutdownFailure"
+    "TestSessionAccountingRetainsEarlierMetricShutdownFailure",
+    "TestSessionAccountingRetainedCloudCannotMintRelease"
   ],
   "engine/engineutil": [
     "TestSessionCleanupAccountingWaitsThroughCleanupAndPermitRelease",
