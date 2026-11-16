@@ -1759,6 +1759,8 @@ func (fe *frontendPretty) Run(ctx context.Context, opts dagui.FrontendOpts, run 
 		if cleanup != nil {
 			err = errors.Join(err, cleanup())
 		}
+		fe.reportMu.Lock()
+		defer fe.reportMu.Unlock()
 		fe.err = err
 	} else if fe.console != "" {
 		// serve the TUI over HTTP instead of attaching to a terminal
@@ -1784,7 +1786,7 @@ func (fe *frontendPretty) Run(ctx context.Context, opts dagui.FrontendOpts, run 
 	if fe.reportOnly && fe.traceID != "" && fe.agentStyle() {
 		reportOut = os.Stdout
 	}
-	if renderErr := fe.FinalRender(reportOut); renderErr != nil {
+	if renderErr := fe.finalRenderLocked(reportOut); renderErr != nil {
 		return renderErr
 	}
 
@@ -3045,6 +3047,14 @@ func (fe *frontendPretty) doQuit() {
 // FinalRender is called after the program has finished running and prints the
 // final output after the TUI has exited.
 func (fe *frontendPretty) FinalRender(w io.Writer) error {
+	if fe.reportOnly {
+		fe.reportMu.Lock()
+		defer fe.reportMu.Unlock()
+	}
+	return fe.finalRenderLocked(w)
+}
+
+func (fe *frontendPretty) finalRenderLocked(w io.Writer) error {
 	if exitCode, ok := renderQuietError(w, fe.err); ok {
 		return ExitError{OriginalCode: exitCode, Original: fe.err}
 	}

@@ -38,5 +38,11 @@ and engine telemetry. Use module-qualified check links from the real workspace
 catalog. A release probe does not substitute for the consuming repository's
 complete diagnostic report.
 
+Report-mode final rendering, DOT output and exit normalization share the existing
+frontend mutex with telemetry ingestion. Public final renders use the same owner
+without relying on telemetry shutdown to imply callback quiescence. The finite
+public reporter/exporter race regressions preserve subsequent failure rendering
+and cover both direct final rendering and Run finalization.
+
 Upstream removal criterion: equivalent tests pass against the proposed upstream
 replacement without this follow-up. An HTTP 200 alone is not delivery proof.
