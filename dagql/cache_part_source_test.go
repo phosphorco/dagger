@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -378,4 +379,29 @@ func TestPartSourceScanSkipsUnreadyDonor(t *testing.T) {
 	source, err := c.AcquireEquivalentPartSource(ctx, receiver, PersistedPartAddress{Part: "snapshot"})
 	require.NoError(t, err)
 	require.Nil(t, source)
+}
+
+func TestPartSourceScanReselectsChangedDonor(t *testing.T) {
+	ctx, c, srv := transferTestCache(t)
+	receiver := persistedListTestResult(t, ctx, c, srv, "receiver", &transferTestValue{Text: "pending"})
+	var changing atomic.Bool
+	value := &transferTestValue{Text: "snapshot", links: []PersistedSnapshotRefLink{{Role: "snapshot", RefKey: "retained-snapshot"}}}
+	value.revisionHook = func() {
+		if changing.Load() {
+			value.rev.Add(1)
+		}
+	}
+	donor := persistedListTestResult(t, ctx, c, srv, "donor", value)
+	partTestEquivalent(t, c, receiver, donor)
+	changing.Store(true)
+	source, err := c.AcquireEquivalentPartSource(ctx, receiver, PersistedPartAddress{Part: "snapshot"})
+	changing.Store(false)
+	require.Nil(t, source)
+	require.ErrorIs(t, err, ErrPartReselect, "a completed capture invalidated by publication is not proof that its donor is missing")
+	source, err = c.AcquireEquivalentPartSource(ctx, receiver, PersistedPartAddress{Part: "snapshot"})
+	require.NoError(t, err)
+	require.NotNil(t, source)
+	require.Equal(t, PartReady, source.Readiness())
+	require.Equal(t, "retained-snapshot", source.Descriptor().SnapshotID)
+	require.NoError(t, source.Release(ctx))
 }
