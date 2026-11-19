@@ -54,12 +54,20 @@ placed. Preserve unrelated outgoing gRPC metadata and metadata-free callers.
 
 Git labels also carry `dagger.io/git.worktree`, the digest of the resolved local
 worktree root, independent of commit and working subdirectory. Linked worktrees
-remain distinct; symlink aliases resolve to the same identity. Placement may pair
-this label with the existing host-stable client identity to distinguish checkouts
-without publishing a raw local path. It is an affinity hint, not authentication
-or proof that a result exists. Older gateways ignore it. This client change does
-not add last-worker state or alter capacity admission; those belong to the native
-placement service and require their own reviewed change.
+remain distinct; symlink aliases resolve to the same identity.
+
+The native client keeps its last validated Info worker in a small private receipt
+under XDG state, scoped to that checkout and engine endpoint. Reads are confined
+and validated; atomic replacement prevents partial concurrent writes. State
+failures report an explicit status and leave the command's verdict unchanged.
+Relative state roots are refused rather than writing into the checkout. Metadata
+labels are copied before adding `dagger.io/engine.last` and its status.
+
+The gateway remains the sole chooser: this is a preference, not authentication,
+a worker selector or proof that a cached result exists. Older gateways ignore
+it. Remembering and honoring a prior assignment, including exact fallback
+reasons, requires the companion reviewed gateway change. Session identity and
+ordinary admission continue to belong to that native placement service.
 
 The startup wire regression and checkout-label tests cover these contracts. No
 engine image or gateway deployment is implied by the source tests.
