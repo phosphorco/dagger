@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/engine/client/drivers"
@@ -45,6 +47,14 @@ func newBuildkitClient(ctx context.Context, remote *url.URL, connector drivers.C
 			rerr = errors.Join(rerr, c.Close())
 		}
 	}()
+
+	if clientMetadata, err := engine.ClientMetadataFromContext(ctx); err == nil {
+		headers := clientMetadata.AppendToHTTPHeaders(http.Header{})
+		outgoing, _ := metadata.FromOutgoingContext(ctx)
+		outgoing = outgoing.Copy()
+		outgoing.Set(engine.ClientMetadataMetaKey, headers.Get(engine.ClientMetadataMetaKey))
+		ctx = metadata.NewOutgoingContext(ctx, outgoing)
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
