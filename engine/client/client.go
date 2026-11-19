@@ -559,6 +559,8 @@ func (c *Client) startEngine(ctx context.Context, params Params) (rerr error) {
 	slog.Debug("connecting", "runner", c.RunnerHost)
 
 	bkCtx, span := Tracer(ctx).Start(ctx, "creating client")
+	clientMetadata := c.clientMetadata()
+	bkCtx = engine.ContextWithClientMetadata(bkCtx, &clientMetadata)
 	bkClient, bkInfo, err := newBuildkitClient(bkCtx, remote, c.connector)
 	telemetry.EndWithCause(span, &err)
 	if err != nil {

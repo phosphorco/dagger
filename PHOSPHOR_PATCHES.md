@@ -46,3 +46,20 @@ and cover both direct final rendering and Run finalization.
 
 Upstream removal criterion: equivalent tests pass against the proposed upstream
 replacement without this follow-up. An HTTP 200 alone is not delivery proof.
+
+Native placement startup carries the same client metadata as the subsequent
+session, including its session identity. BuildKit Wait/Info must not discover a
+different worker through an anonymous preflight before the native session is
+placed. Preserve unrelated outgoing gRPC metadata and metadata-free callers.
+
+Git labels also carry `dagger.io/git.worktree`, the digest of the resolved local
+worktree root, independent of commit and working subdirectory. Linked worktrees
+remain distinct; symlink aliases resolve to the same identity. Placement may pair
+this label with the existing host-stable client identity to distinguish checkouts
+without publishing a raw local path. It is an affinity hint, not authentication
+or proof that a result exists. Older gateways ignore it. This client change does
+not add last-worker state or alter capacity admission; those belong to the native
+placement service and require their own reviewed change.
+
+The startup wire regression and checkout-label tests cover these contracts. No
+engine image or gateway deployment is implied by the source tests.

@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -163,6 +165,13 @@ func (labels Labels) WithGitLabels(workdir string) Labels {
 			slog.Warn("failed to open git repository", "err", err)
 		}
 		return labels
+	}
+
+	if worktree, err := repo.Worktree(); err == nil {
+		if root, err := filepath.EvalSymlinks(worktree.Filesystem.Root()); err == nil {
+			identity := sha256.Sum256([]byte(root))
+			labels.src["dagger.io/git.worktree"] = fmt.Sprintf("%x", identity)
+		}
 	}
 
 	origin, err := repo.Remote("origin")
