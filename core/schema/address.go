@@ -379,7 +379,7 @@ func (s *addressSchema) Install(srv *dagql.Server) {
 			Doc(`Load a service from the address.`),
 		dagql.NodeFunc("socket", s.socket).
 			WithInput(dagql.PerCallInput).
-			Doc(`Load a local socket from the address.`),
+			Doc(`Load a local Unix socket, or a key-scoped SSH agent from ssh-agent:///absolute/path.`),
 		dagql.NodeFunc("volume", s.volume).
 			View(AfterVersion("v1.0.0-0")).
 			WithInput(dagql.PerCallInput).
@@ -1509,6 +1509,21 @@ func (s *addressSchema) socket(
 		}
 	}
 	addr := r.Self().Value
+	if strings.HasPrefix(addr, "ssh-agent:") {
+		u, err := url.Parse(addr)
+		if err != nil || u.Host != "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || strings.Contains(addr, "#") || !strings.HasPrefix(u.Path, "/") {
+			return inst, errors.New("SSH-agent address must be ssh-agent:///absolute/socket/path")
+		}
+		srv, err := core.CurrentDagqlServer(ctx)
+		if err != nil {
+			return inst, err
+		}
+		err = srv.Select(ctx, srv.Root(), &inst,
+			dagql.Selector{Field: "host"},
+			dagql.Selector{Field: "_sshAuthSocket", Args: []dagql.NamedInput{{Name: "path", Value: dagql.NewString(u.Path)}}},
+		)
+		return inst, err
+	}
 	path := strings.TrimPrefix(addr, "unix://")
 	q := []dagql.Selector{
 		{

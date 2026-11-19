@@ -1,0 +1,13 @@
+kind: Added
+body: |
+  Socket arguments can use ssh-agent:///absolute/path to resolve an SSH agent
+  by its authorized key identities before passing it into a module. Git keeps
+  an explicitly delegated SSH identity instead of scoping it again to the
+  receiving module client. The same authorized identity can reuse dependent
+  work across sessions even when the caller's socket path changes.
+
+  Ordinary Unix socket addresses retain their existing client isolation.
+  Missing or changed SSH authority still prevents reuse of authenticated work.
+time: 2026-11-19T07:15:00Z
+custom:
+  Author: its-rosetta

@@ -94,6 +94,7 @@ func (s *hostSchema) Install(srv *dagql.Server) {
 			Doc(`Accesses the SSH auth socket on the host and returns a socket scoped to SSH identities.`).
 			Args(
 				dagql.Arg("source").Doc(`Optional source socket to scope. If not set, uses the caller's SSH_AUTH_SOCK.`),
+				dagql.Arg("path").Doc(`Explicit SSH-agent path on the requesting client. Cannot be combined with source.`),
 			),
 
 		dagql.Func("tunnel", s.tunnel).
@@ -476,6 +477,7 @@ func (s *hostSchema) socket(ctx context.Context, host dagql.ObjectResult[*core.H
 
 type hostSSHAuthSocketArgs struct {
 	Source dagql.Optional[core.SocketID] `name:"source"`
+	Path   string                        `default:""`
 }
 
 // checkoutSSHAuthSocketPath stands in for SSH_AUTH_SOCK when a client without
@@ -513,6 +515,9 @@ func checkoutSSHAuthSocketPath(ctx context.Context, query *core.Query, caller *e
 }
 
 func (s *hostSchema) sshAuthSocket(ctx context.Context, host dagql.ObjectResult[*core.Host], args hostSSHAuthSocketArgs) (inst dagql.Result[*core.Socket], err error) {
+	if args.Source.Valid && args.Path != "" {
+		return inst, errors.New("SSH auth socket accepts a source or a path, not both")
+	}
 	srv, err := core.CurrentDagqlServer(ctx)
 	if err != nil {
 		return inst, err
@@ -549,7 +554,10 @@ func (s *hostSchema) sshAuthSocket(ctx context.Context, host dagql.ObjectResult[
 			return inst, errors.New("resolved source socket is nil")
 		}
 	} else {
-		sshAuthSocketPath := clientMetadata.SSHAuthSocketPath
+		sshAuthSocketPath := args.Path
+		if sshAuthSocketPath == "" {
+			sshAuthSocketPath = clientMetadata.SSHAuthSocketPath
+		}
 		if sshAuthSocketPath == "" {
 			sshAuthSocketPath, err = checkoutSSHAuthSocketPath(ctx, query, clientMetadata)
 			if err != nil {
