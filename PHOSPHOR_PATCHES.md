@@ -71,3 +71,22 @@ ordinary admission continue to belong to that native placement service.
 
 The startup wire regression and checkout-label tests cover these contracts. No
 engine image or gateway deployment is implied by the source tests.
+
+Hosted launchers may initialize this receipt from a verified earlier report.
+The receipt contract is `$XDG_STATE_HOME/dagger/placements/<key>` (the normal
+XDG state default applies), mode0600 in a private directory. Its JSON is
+`{"version":1,"worker":"<serving engine>"}`. The key is hexadecimal SHA-256 of
+`endpoint + "\u0000" + checkout`, where checkout is hexadecimal SHA-256 of the
+resolved worktree-root path. Use the exact endpoint string passed to the client.
+A later validated Info assignment replaces that initial preference.
+
+The launcher owns reference provenance, not the client: prefer a completed main
+report for the exact merge-base; otherwise use the nearest completed main
+ancestor and state that fallback. Require a unique actual serving worker for
+the checked tree and validate the report's repository/commit before seeding.
+Keep the reference run, commit and selection reason in the check's report.
+Missing or ambiguous evidence leaves the receipt absent; the gateway's normal
+choice still yields a verdict. Do not write another checkout's state, redirect
+straight to a worker, or claim the reference proves a cache hit. Older client
+versions ignore this receipt; source compatibility and release qualification
+remain separate from these local protocol tests.

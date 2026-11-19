@@ -101,3 +101,32 @@ func TestPlacementReceiptDoesNotWriteIntoCurrentDirectory(t *testing.T) {
 		require.Error(t, err)
 	}
 }
+
+func TestCallerCanSeedAReferenceEngineWithoutBorrowingAnotherCheckoutState(t *testing.T) {
+	endpoint := "tcp://gateway:443"
+	checkout := "current-checkout-identity"
+	key := checkoutPlacementKey(endpoint, checkout)
+	parent := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(parent, key), []byte(`{"version":1,"worker":"reference-worker"}`), 0600))
+	receipt, err := openCheckoutReceipt(parent, key)
+	require.NoError(t, err)
+	defer receipt.Close()
+	worker, err := receipt.read()
+	require.NoError(t, err)
+	client := &Client{Params: Params{SessionID: "new-session"}, labels: enginetel.NewLabels(map[string]string{"dagger.io/git.worktree": checkout}, nil, nil), preferredWorker: worker, preferenceStatus: "prior_assignment"}
+	metadata := client.clientMetadata()
+	wire := metadata.AppendToHTTPHeaders(http.Header{})
+	decoded, err := engine.ClientMetadataFromHTTPHeaders(wire)
+	require.NoError(t, err)
+	require.Equal(t, "reference-worker", decoded.Labels["dagger.io/engine.last"])
+	require.Equal(t, checkout, decoded.Labels["dagger.io/git.worktree"])
+	other, err := openCheckoutReceipt(parent, checkoutPlacementKey(endpoint, "other-checkout"))
+	require.NoError(t, err)
+	defer other.Close()
+	_, err = other.read()
+	require.ErrorIs(t, err, fs.ErrNotExist)
+	require.NoError(t, receipt.remember("actually-serving-worker"))
+	worker, err = receipt.read()
+	require.NoError(t, err)
+	require.Equal(t, "actually-serving-worker", worker)
+}
