@@ -2,9 +2,12 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,6 +40,9 @@ func (s *placementInfoServer) Info(ctx context.Context, _ *controlapi.InfoReques
 			if err != nil || client.SessionID != "native-session" {
 				return nil, status.Error(codes.InvalidArgument, "wrong native session metadata")
 			}
+			if client.Labels["dagger.io/git.worktree"] != strings.Repeat("a", 64) || client.Labels["dagger.io/engine.last"] != "b" || client.Labels["dagger.io/engine.last.status"] != "prior_assignment" {
+				return nil, status.Error(codes.InvalidArgument, "checkout preference metadata lost")
+			}
 			if values := md.Get("existing-header"); len(values) != 1 || values[0] != "retained" {
 				return nil, status.Error(codes.InvalidArgument, "outgoing metadata lost")
 			}
@@ -55,6 +61,14 @@ func (c placementInfoConnector) Connect(ctx context.Context) (net.Conn, error) {
 func (placementInfoConnector) EngineID() string { return "" }
 
 func TestBuildkitStartupUsesNativeSessionMetadata(t *testing.T) {
+	data, err := os.ReadFile("../testdata/checkout-preference.json")
+	require.NoError(t, err)
+	var fixtures map[string]string
+	require.NoError(t, json.Unmarshal(data, &fixtures))
+	headers := http.Header{}
+	headers.Set(engine.ClientMetadataMetaKey, fixtures["native-session"])
+	nativeMetadata, err := engine.ClientMetadataFromHTTPHeaders(headers)
+	require.NoError(t, err)
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
 	controlapi.RegisterControlServer(server, &placementInfoServer{})
@@ -73,7 +87,7 @@ func TestBuildkitStartupUsesNativeSessionMetadata(t *testing.T) {
 			want := "preflight-worker"
 			if hasMetadata {
 				ctx = metadata.AppendToOutgoingContext(ctx, engine.ClientMetadataMetaKey, "stale-metadata")
-				ctx = engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{SessionID: "native-session"})
+				ctx = engine.ContextWithClientMetadata(ctx, nativeMetadata)
 				want = "session-worker"
 			}
 			client, info, err := newBuildkitClient(ctx, &url.URL{Scheme: "tcp", Host: "placement"}, placementInfoConnector{listener})
