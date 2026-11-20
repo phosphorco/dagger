@@ -487,6 +487,8 @@ func privateCollectionSDKInput(ctx context.Context, fields map[string]any) (any,
 	return typ.ConvertToSDKInput(ctx, value)
 }
 
+const moduleObjectContentDomain = "module-object-content-v2"
+
 func (t *ModuleObjectType) CollectContent(ctx context.Context, value dagql.AnyResult, content *CollectedContent) error {
 	if value == nil {
 		return content.CollectJSONable(nil)
@@ -496,6 +498,18 @@ func (t *ModuleObjectType) CollectContent(ctx context.Context, value dagql.AnyRe
 	if !ok {
 		return fmt.Errorf("expected *ModuleObject, got %T", value)
 	}
+	moduleCall, err := obj.Module.ResultCall()
+	if err != nil {
+		return fmt.Errorf("module object defining module call: %w", err)
+	}
+	moduleDigest, err := moduleCall.ContentPreferredDigest(ctx)
+	if err != nil {
+		return fmt.Errorf("module object defining module identity: %w", err)
+	}
+	content.hasher.WithString(moduleObjectContentDomain)
+	content.hasher.WithString(obj.TypeDef.Name)
+	content.hasher.WithString(string(moduleDigest))
+	content.hasher.WithDelim()
 	objFields := obj.Fields
 	if obj.TypeDef.Collection != nil && obj.TypeDef.Collection.Enabled {
 		base := obj
