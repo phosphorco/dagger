@@ -53,3 +53,15 @@ rosetta-machine builder consumes a single immutable fork commit, never a patch f
 - **Drop when:** the selected upstream SDK bounds active nested requests across
   goroutines and completes queued work under this regression.
 
+## Linear causal telemetry fan-out
+
+- **Upstream delta:** construct causal link targets with a first-seen set,
+  preserving order while avoiding repeated linear membership scans.
+- **Why patch now:** large real check traces must not spend quadratic work
+  retaining causality; this preserves the deployed telemetry behavior.
+- **Regression:** `engine/clientdb/telemetry_causal_targets_test.go`,
+  `TestCausalLinkTargetsPreservesFirstSeenCauses` and
+  `TestCausalLinkTargetsRetainsLargeFanout`; `BenchmarkCausalLinkTargets` measures
+  the large case without changing its meaning.
+- **Drop when:** the selected upstream target collector preserves first-seen
+  identity/order with equivalent linear work and these tests pass.
