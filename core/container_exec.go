@@ -2403,12 +2403,6 @@ func (state *ContainerExecState) evaluateOutputs(ctx context.Context, container 
 
 		execErrCh := make(chan error, 1)
 		go func() {
-			slot, err := engineClient.AcquireExecSlot(execCtx)
-			if err != nil {
-				execErrCh <- err
-				return
-			}
-			defer slot.Release()
 			container.recordPartDiagnostic("execRun", "")
 			execErrCh <- engineClient.Run(
 				execCtx,
@@ -2416,7 +2410,6 @@ func (state *ContainerExecState) evaluateOutputs(ctx context.Context, container 
 				rootMount,
 				execMounts,
 				procInfo,
-				slot,
 				nil,
 				causeCtx,
 				execMD,

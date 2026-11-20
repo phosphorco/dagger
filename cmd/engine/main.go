@@ -298,7 +298,7 @@ func addFlags(app *cli.App) {
 		},
 		cli.StringFlag{
 			Name:  "oci-max-parallelism",
-			Usage: "maximum number of container execs that can run at the same time (or \"num-cpu\" to automatically set to the number of CPUs). 0 means unlimited parallelism. An exec stops counting toward the limit once its command calls the Dagger API, as module function calls do.",
+			Usage: "maximum concurrent no-child container executions across sessions; current API leaves must set disableDaggerInDagger=true. Services and commands retaining Dagger API access are outside this bound. Use \"num-cpu\" for the host CPU count; 0 is unlimited.",
 		},
 		cli.StringFlag{
 			Name:  "oci-worker-gc-keepstorage",
@@ -975,6 +975,9 @@ func applyMainFlags(c *cli.Context, cfg *bkconfig.Config) error {
 			if err != nil {
 				return fmt.Errorf("failed to parse oci-max-parallelism, should be positive integer, 0 for unlimited, or 'num-cpu' for setting to the number of CPUs: %w", err)
 			}
+		}
+		if maxParallelism < 0 {
+			return fmt.Errorf("oci-max-parallelism must be nonnegative")
 		}
 		cfg.Workers.OCI.MaxParallelism = maxParallelism
 	}

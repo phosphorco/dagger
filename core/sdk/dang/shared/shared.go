@@ -69,7 +69,14 @@ func WithNestedClientServer(
 	}
 	// Give the invocation its own connection pool rather than sharing the
 	// process-wide http.DefaultTransport, so serveNestedClient can drain it.
-	return serveNestedClient(ctx, httpSrv, http.DefaultTransport.(*http.Transport).Clone(), fn)
+	transportPool := http.DefaultTransport.(*http.Transport).Clone()
+	// Resolving an artifact-list argument can demand thousands of lazy IDs.
+	// Each request may run another in-engine SDK, retaining its own schema,
+	// receiver and planning data until execution completes. Bound active HTTP/1
+	// requests at this existing pool instead of starting every runtime at once.
+	// Each nested invocation has its own pool, so child calls can still proceed.
+	transportPool.MaxConnsPerHost = 64
+	return serveNestedClient(ctx, httpSrv, transportPool, fn)
 }
 
 // serveNestedClient serves httpSrv on a loopback listener, calls fn with a

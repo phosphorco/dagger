@@ -1,0 +1,69 @@
+# Bound No-Child Execution Across Sessions
+
+The existing OCI `max-parallelism` setting and `--oci-max-parallelism` flag bound
+concurrent no-child container executions across native sessions on one engine.
+A current-API caller declares a no-child leaf by setting the existing
+`disableDaggerInDagger: true` argument on that leaf's actual `withExec` call.
+The Bun supervisor, TypeScript compiler and Go test executions in the owned CI
+caller domain must each make that declaration. Applying it to an outer runtime,
+an export request or a different exec does not declare the heavy leaf.
+
+## Domain and exclusions
+
+Commands retaining nested Dagger API access are outside this bound. That
+includes current-API commands which omit `disableDaggerInDagger`, even if their
+current implementation happens to perform CPU-only work. Existing callers that
+keep this default are not protected by the declared-leaf admission contract.
+SDK and control parents retain the API access required by their children.
+Services do not occupy leaf capacity for their lifetime. The CA installer helper
+runs during its outer execution's admitted setup without taking another slot.
+An interactive process in an existing running container is not another
+independently admitted container execution.
+
+This is a shared count of admitted no-child runs. It does not reserve cores,
+limit the CPU used inside an admitted process, or constrain host processes,
+services, SDK/control parents or default-nested outside callers. Selecting a
+finite count requires a measured CPU demand for the relevant leaves and room
+for the engine and all excluded work. `num-cpu` uses the host CPU count, not a
+reservation or a measurement of available CPU under the engine's ancestor quota.
+Zero preserves unlimited execution; negative settings fail before startup
+convergence. No new caller header, session label, scheduler or cache-lock
+convention is involved.
+
+## Ownership and lifetime
+
+The native server creates one semaphore from the OCI setting. Its existing
+session `engineutil.Opts` shallow copies carry the same semaphore pointer, so
+co-located sessions on the same engine compete for the same leaf slots. It is
+not one independent limit per session. Native session affinity remains intact;
+this contract does not lower the placement session cap or reserve a whole
+engine for a session.
+
+`engineutil.Client.run` acquires one slot with the request context before
+execution setup or process start. A cancelled waiter returns without starting
+its process. The permit remains held through execution and resource cleanup,
+and is released on success, failure and cancellation. Cleanup errors remain
+visible. A failed cleanup is not proof that every physical descendant vanished.
+
+This queue precedes the Bun supervisor starting, so it does not consume an
+in-process Bun testcase timer or the supervisor's process-exit timeout. Outer
+CLI, request and CI job wall-clock deadlines include the queue. The admission
+change does not alter testcase budgets, supervisor settings, test argv, shard
+membership, source identity or cache policy.
+
+## Qualification boundary
+
+Source tests cover the real schema argument conversion for the three owned
+leaf commands, shared admission through the actual executor run carrier,
+cancelled waits, permit lifetime through cleanup, and progress of excluded
+parents with admitted children. Default-nested commands have a separate
+outside-domain fixture; they are not silently counted as protected leaves.
+
+A full qualification still needs the declared caller changes, exact built
+engine provenance and a finite shared-placement run containing all eight UI
+cells and the root verdict, with multiple declared-leaf sessions co-located on
+the same engine. Retain actual execution and cache status, session and worker
+identities, queue and process intervals, unchanged budgets and the target
+PreviewSourceMarkers result. Outside-domain caller load remains an explicit
+limitation. Source tests alone do not establish performance acceptance or
+authorize an image build, rollout or workload.

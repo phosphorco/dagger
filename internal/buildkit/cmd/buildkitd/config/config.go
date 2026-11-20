@@ -120,9 +120,8 @@ type OCIConfig struct {
 	// SELinux enables applying SELinux labels.
 	SELinux bool `toml:"selinux"`
 
-	// MaxParallelism is the maximum number of container execs that can run at
-	// the same time. An exec stops counting toward the limit once its command
-	// calls the Dagger API, as module function calls do.
+	// MaxParallelism bounds concurrent declared no-child executions across sessions.
+	// Services and commands retaining Dagger API access are outside this bound.
 	MaxParallelism int `toml:"max-parallelism"`
 }
 
