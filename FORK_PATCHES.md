@@ -65,3 +65,20 @@ rosetta-machine builder consumes a single immutable fork commit, never a patch f
   the large case without changing its meaning.
 - **Drop when:** the selected upstream target collector preserves first-seen
   identity/order with equivalent linear work and these tests pass.
+## Declared no-child execution admission
+
+- **Upstream delta:** one engine-owned semaphore bounds declared no-child
+  executions across sessions, holds capacity through cleanup, and excludes
+  services and commands retaining Dagger API access. Negative CLI limits fail.
+  The beta.23 base has no competing permit path; this is the deployed bound.
+- **Why patch now:** preserve the deployed engines' resource contract during
+  this release. Counting parents while descendants wait for their capacity can
+  deadlock; releasing capacity before failure cleanup can exceed the bound.
+- **Regression:** `engine/engineutil/exec_admission_test.go` covers cross-session
+  admission, cancellation, cleanup, nested parents, declared leaves and the CA
+  helper; `engine/server/execution_parallelism_test.go`,
+  `cmd/engine/TestParallelismFlag`, and
+  `core/schema/TestExecutionAdmissionNoChildLeafArguments` cover the boundaries.
+- **Drop when:** the selected upstream constructor provides the same declared
+  execution domain, lifecycle-bound permit and configuration validation, with
+  all these tests passing unchanged.

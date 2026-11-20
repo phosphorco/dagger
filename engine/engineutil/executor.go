@@ -307,6 +307,23 @@ func (c *Client) run(
 	state *execState,
 	setupFuncs ...namedSetupFunc,
 ) (rerr error) {
+	// The bound covers no-child container runs across all sessions. In the
+	// current API, callers declare those leaves with disableDaggerInDagger.
+	// Commands retaining default nested API access are outside this domain.
+	// Services and the CA helper have a started channel; they must not take
+	// the execution slot needed by descendants or by their admitted parent.
+	if c.ParallelismSem != nil && state.startedCh == nil && !state.hasDaggerCLI() {
+		_, wait := dagql.BeginStep(ctx, "exec.waitParallelism")
+		err := c.ParallelismSem.Acquire(ctx, 1)
+		wait.End(err)
+		if err != nil {
+			return err
+		}
+		// Registered before the lifecycle defer below: release only after the
+		// process and its resources have completed cleanup, including failure.
+		defer c.ParallelismSem.Release(1)
+	}
+
 	c.runningMu.Lock()
 	c.running[state.id] = state
 	c.runningMu.Unlock()

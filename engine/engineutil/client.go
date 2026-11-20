@@ -36,6 +36,7 @@ import (
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/hashicorp/go-multierror"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -69,6 +70,11 @@ type Opts struct {
 	Applier          diff.Applier
 	Differ           diff.Comparer
 	IdentityMapping  *idtools.IdentityMapping
+
+	// One server-owned no-child execution limit shared by all session clients.
+	// Nil is unlimited. Services and commands retaining Dagger API access are
+	// outside this bound, including the current API's default-nested commands.
+	ParallelismSem *semaphore.Weighted
 
 	ExecutorRoot    string
 	TelemetryPubSub http.Handler
