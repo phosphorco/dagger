@@ -42,3 +42,14 @@ rosetta-machine builder consumes a single immutable fork commit, never a patch f
   completed donor capture and this public source-selection regression passes.
 - **Merged source:** `bd6a8e2601968e8e80bf38e0f4f2e38a412530b4`.
 
+## Bounded Dang nested requests
+
+- **Upstream delta:** the Dang SDK shares one request permit among nested
+  goroutines and releases it when a request finishes.
+- **Why patch now:** preserve the already deployed request bound and avoid
+  uncapped fan-out when independent requests run together.
+- **Regression:** `core/sdk/dang/shared/concurrency_test.go`,
+  `TestNestedClientBoundsActiveRequestsAndCompletesQueuedWork`.
+- **Drop when:** the selected upstream SDK bounds active nested requests across
+  goroutines and completes queued work under this regression.
+
