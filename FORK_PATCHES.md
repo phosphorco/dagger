@@ -27,3 +27,18 @@ rosetta-machine builder consumes a single immutable fork commit, never a patch f
   from bypassing that scope, with these regressions still passing.
 - **Merged source:** `300dcea7c4351313a892c45f7a8cf040d6223e5d`.
 
+## Donor capture invalidation — PR 6
+
+- **Upstream delta:** a completed donor capture whose representation changed
+  requests part-source reselection, instead of being treated as an absent donor.
+- **Why patch now:** the scan can otherwise report an unavailable imported
+  filesystem part although another equivalent donor retains the snapshot.
+  This reproduces one cause; it does not establish b1's physical loss cause.
+- **Regression:** `dagql/cache_part_source_test.go`,
+  `TestPartSourceScanReselectsChangedDonor`, through
+  `AcquireEquivalentPartSource`. Busy/missing sources and encoder failures keep
+  their distinct behavior.
+- **Drop when:** the selected upstream scan reselects after invalidating a
+  completed donor capture and this public source-selection regression passes.
+- **Merged source:** `bd6a8e2601968e8e80bf38e0f4f2e38a412530b4`.
+
