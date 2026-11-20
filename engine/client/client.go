@@ -16,6 +16,7 @@ import (
 	"net/http/httptrace"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"time"
 
 	"github.com/Khan/genqlient/graphql"
+	"github.com/adrg/xdg"
 	controlapi "github.com/dagger/dagger/internal/buildkit/api/services/control"
 	bkclient "github.com/dagger/dagger/internal/buildkit/client"
 	bkauth "github.com/dagger/dagger/internal/buildkit/session/auth"
@@ -229,8 +231,10 @@ type Client struct {
 	upstreamCacheImportOptions []*controlapi.CacheOptionsEntry
 	upstreamCacheExportOptions []*controlapi.CacheOptionsEntry
 
-	hostname       string
-	stableClientID string
+	hostname         string
+	stableClientID   string
+	preferredWorker  string
+	preferenceStatus string
 
 	// primarySpan is the span Connect was called under (e.g. the CLI's
 	// command span): the span this client's session is presented as.
@@ -558,7 +562,44 @@ func (c *Client) startEngine(ctx context.Context, params Params) (rerr error) {
 	slog := slog.SpanLogger(ctx, InstrumentationLibrary)
 	slog.Debug("connecting", "runner", c.RunnerHost)
 
+	checkout, _ := c.labels.Get("dagger.io/git.worktree")
+	placementKey := checkoutPlacementKey(c.RunnerHost, checkout)
+	c.preferredWorker = ""
+	c.preferenceStatus = "checkout_identity_unavailable"
+	var receipt *checkoutReceipt
+	if placementKey != "" {
+		var receiptErr error
+		receipt, receiptErr = openCheckoutReceipt(filepath.Join(xdg.StateHome, "dagger", "placements"), placementKey)
+		if receiptErr != nil {
+			c.preferenceStatus = "receipt_state_unavailable"
+			slog.Warn("checkout assignment history unavailable", "error", receiptErr)
+		} else {
+			defer func() {
+				if err := receipt.Close(); err != nil {
+					slog.Warn("closing checkout assignment history", "error", err)
+				}
+			}()
+			previous, readErr := receipt.read()
+			switch {
+			case readErr == nil:
+				c.preferredWorker, c.preferenceStatus = previous, "prior_assignment"
+			case errors.Is(readErr, os.ErrNotExist):
+				c.preferenceStatus = "no_prior_assignment"
+			case errors.Is(readErr, errInvalidCheckoutReceipt):
+				c.preferenceStatus = "invalid_prior_assignment"
+				slog.Warn("invalid checkout assignment history", "error", readErr)
+			default:
+				c.preferenceStatus = "receipt_read_failed"
+				slog.Warn("reading checkout assignment history", "error", readErr)
+			}
+		}
+	} else if checkout != "" {
+		c.preferenceStatus = "engine_endpoint_unavailable"
+	}
+
 	bkCtx, span := Tracer(ctx).Start(ctx, "creating client")
+	clientMetadata := c.clientMetadata()
+	bkCtx = engine.ContextWithClientMetadata(bkCtx, &clientMetadata)
 	bkClient, bkInfo, err := newBuildkitClient(bkCtx, remote, c.connector)
 	telemetry.EndWithCause(span, &err)
 	if err != nil {
@@ -573,6 +614,11 @@ func (c *Client) startEngine(ctx context.Context, params Params) (rerr error) {
 	c.bkVersion = bkInfo.BuildkitVersion.Version
 	c.bkName = bkInfo.BuildkitVersion.Revision
 	c.numCPU = bkInfo.SystemInfo.NumCPU
+	if receipt != nil {
+		if err := receipt.remember(c.bkName); err != nil {
+			slog.Warn("remembering checkout assignment", "error", err)
+		}
+	}
 
 	slog.Info("connected", "name", c.bkName, "client-version", engine.Version, "server-version", c.bkVersion)
 
@@ -2027,7 +2073,7 @@ func (c *Client) clientMetadata() engine.ClientMetadata {
 		ClientStableID:                 c.stableClientID,
 		UpstreamCacheImportConfig:      c.upstreamCacheImportOptions,
 		UpstreamCacheExportConfig:      c.upstreamCacheExportOptions,
-		Labels:                         c.labels.AsMap(),
+		Labels:                         maps.Clone(c.labels.AsMap()),
 		CloudOrg:                       cloudOrg,
 		CloudEngine:                    strings.HasPrefix(c.RunnerHost, engine.CloudRunnerHostPrefix),
 		DoNotTrack:                     analytics.DoNotTrack(),
@@ -2042,6 +2088,13 @@ func (c *Client) clientMetadata() engine.ClientMetadata {
 		EnableCloudScaleOut:            c.EnableCloudScaleOut,
 		CloudScaleOutEngineID:          remoteEngineID,
 		Profile:                        c.Profile,
+	}
+	if c.preferenceStatus != "" {
+		if md.Labels == nil {
+			md.Labels = map[string]string{}
+		}
+		md.Labels["dagger.io/engine.last"] = c.preferredWorker
+		md.Labels["dagger.io/engine.last.status"] = c.preferenceStatus
 	}
 	if c.primarySpan.IsValid() {
 		md.PrimaryTraceID = c.primarySpan.TraceID().String()

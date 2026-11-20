@@ -82,3 +82,25 @@ rosetta-machine builder consumes a single immutable fork commit, never a patch f
 - **Drop when:** the selected upstream constructor provides the same declared
   execution domain, lifecycle-bound permit and configuration validation, with
   all these tests passing unchanged.
+
+## Checkout assignment preference — client PR 3
+
+- **Upstream delta:** session-bound startup Info carries native metadata; the
+  client remembers the validated serving worker per checkout and endpoint and
+  offers it as an admission-neutral preference. Worktree identity resolves
+  symlink aliases and distinguishes linked checkouts.
+- **Why patch now:** repeats otherwise lose locality, and anonymous preflight
+  can name a worker other than the one serving the session. The gateway alone
+  admits and selects workers; missing receipt evidence stays explicit.
+- **Regression:** `TestBuildkitStartupUsesNativeSessionMetadata`,
+  `TestPlacementReceipt*`, `TestCheckoutPreferenceWireFixture`, and
+  `TestGit*Checkout*` cover native wire metadata, receipt confinement,
+  concurrent publication and checkout identity.
+- **Drop when:** upstream startup Info shares the session's placement metadata,
+  retains a validated per-checkout/endpoint preference with explicit status,
+  and these regressions pass.
+- **Reviewed source:** `4d5e9f5b1fa6c0627a4c8f567b5ae6feb052a6d8` (PR 3).
+
+This port is not a client release. The separate deployed client telemetry
+completion patches must also be carried and catalogued before a client is built
+from this series; phosphor.8 remains the active client meanwhile.
