@@ -147,7 +147,12 @@ func (fn *ModuleFunction) cacheImplicitInputs() []dagql.ImplicitInput {
 		return nil
 	}
 
-	var implicitInputs []dagql.ImplicitInput
+	implicitInputs := []dagql.ImplicitInput{{
+		Name: "moduleObjectContent",
+		Resolver: func(context.Context, map[string]dagql.Input) (dagql.Input, error) {
+			return dagql.NewString(moduleObjectContentDomain), nil
+		},
+	}}
 	cachePolicy := fn.metadata.derivedCachePolicy(fn.mod.Self())
 	switch cachePolicy {
 	case FunctionCachePolicyNever:

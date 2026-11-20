@@ -318,6 +318,7 @@ func causalLinkTargets(row Span) []string {
 		return nil
 	}
 	var targets []string
+	seen := make(map[string]struct{}, len(linksPB))
 	for _, link := range telemetry.SpanLinksFromPB(linksPB) {
 		purpose := ""
 		for _, kv := range link.Attributes {
@@ -339,9 +340,11 @@ func causalLinkTargets(row Span) []string {
 			// a self-link would add a pointless self-edge; skip it
 			continue
 		}
-		if !slices.Contains(targets, target) {
-			targets = append(targets, target)
+		if _, exists := seen[target]; exists {
+			continue
 		}
+		seen[target] = struct{}{}
+		targets = append(targets, target)
 	}
 	return targets
 }

@@ -39,6 +39,10 @@ func TestParallelismFlag(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, runtime.NumCPU(), cfg.Workers.OCI.MaxParallelism)
 	})
+	t.Run("negative", func(t *testing.T) {
+		err := app.Run([]string{"buildkitd", "--oci-max-parallelism", "-1"})
+		require.ErrorContains(t, err, "nonnegative")
+	})
 	t.Run("invalid", func(t *testing.T) {
 		err := app.Run([]string{"buildkitd", "--oci-max-parallelism", "foo"})
 		require.Error(t, err)

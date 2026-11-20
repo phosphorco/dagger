@@ -519,8 +519,8 @@ func (c *Cache) scanPartSources(ctx context.Context, receiver AnyResult, address
 			// publication, which concurrent demands of one row make ordinary
 			// and which ends soon: scan again. Another row can stay unready
 			// for as long as its own evaluation runs, so it is passed over.
-			if candidate.row == row {
-				return nil, nil, partRefusedBy("scan: receiver not ready", err)
+			if candidate.row == row || candidate.record.ResultID != 0 {
+				return nil, nil, partRefusedBy("scan: captured candidate not ready", err)
 			}
 			candidate.record, candidate.version, candidate.probe, candidate.unready = PersistedRecord{}, capturedRowRevision{}, nil, true
 			continue
