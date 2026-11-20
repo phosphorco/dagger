@@ -58,7 +58,6 @@ import (
 	"github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
 	"golang.org/x/sync/errgroup"
-	"golang.org/x/sync/semaphore"
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 
@@ -289,6 +288,10 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 	cfg := opts.Config
 	bkcfg := opts.BuildkitConfig
 	ociCfg := bkcfg.Workers.OCI
+	parallelismSem, err := newExecutionParallelism(ociCfg.MaxParallelism)
+	if err != nil {
+		return nil, err
+	}
 
 	srv := &Server{
 		engineName:       opts.Name,
@@ -322,7 +325,6 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 	}
 	srv.shutdownCtx, srv.shutdownCancel = context.WithCancelCause(context.Background())
 
-	var err error
 	if err := srv.configureLocalCacheGC(cfg.GC, ociCfg.GCConfig); err != nil {
 		return nil, err
 	}
@@ -529,11 +531,6 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 		return nil, fmt.Errorf("failed to create clean mount namespace: %w", err)
 	}
 
-	var parallelismSem *semaphore.Weighted
-	if ociCfg.MaxParallelism > 0 {
-		parallelismSem = semaphore.NewWeighted(int64(ociCfg.MaxParallelism))
-	}
-
 	srv.engineUtilOpts, err = engineutil.NewOpts(engineutil.Opts{
 		ID:               rand.Text(),
 		Labels:           baseLabels,
@@ -545,6 +542,7 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 		Applier:          winlayers.NewFileSystemApplierWithWindows(srv.contentStore, apply.NewFileSystemApplier(srv.contentStore)),
 		Differ:           winlayers.NewWalkingDiffWithWindows(srv.contentStore, walking.NewWalkingDiff(srv.contentStore)),
 		IdentityMapping:  nil, // no idmapping
+		ParallelismSem:   parallelismSem,
 		ExecutorRoot:     srv.executorRootDir,
 		TelemetryPubSub:  srv.telemetryPubSub,
 		SessionHandler:   srv,
@@ -557,7 +555,6 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 		SELinux:             srv.selinux,
 		Entitlements:        srv.entitlements,
 		OOMScoreAdj:         srv.execOOMScoreAdj,
-		ParallelismSem:      parallelismSem,
 
 		HostMntNS:  hostMntNS,
 		CleanMntNS: srv.cleanMntNS,

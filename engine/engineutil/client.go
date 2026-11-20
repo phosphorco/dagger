@@ -86,7 +86,7 @@ type Opts struct {
 	// exec before the engine when memory runs out.
 	OOMScoreAdj int
 
-	// ParallelismSem, if set, limits how many container execs run at once.
+	// ParallelismSem bounds declared no-child executions across all session clients.
 	ParallelismSem *semaphore.Weighted
 
 	HostMntNS  *os.File

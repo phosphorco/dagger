@@ -208,3 +208,38 @@ func TestNestingSchemaVersions(t *testing.T) {
 		})
 	}
 }
+
+// Owned heavy leaf callers must attenuate nesting on the actual execution,
+// not just on an outer SDK/runtime or an export request. This exercises the
+// real public argument conversion used by Bun, TypeScript and Go leaf calls.
+func TestExecutionAdmissionNoChildLeafArguments(t *testing.T) {
+	for _, command := range []struct {
+		name string
+		args []string
+	}{
+		{"Bun supervisor", []string{"bun", "/execute.js"}},
+		{"TypeScript compiler", []string{"/tsgo", "--effect-cli-diagnostics", "source-batches", "request"}},
+		{"Go tests", []string{"go", "test", "-json", "-buildvcs=false", "-count=1", "-timeout=30m", "-p=1", "-parallel=1", "./..."}},
+	} {
+		t.Run(command.name, func(t *testing.T) {
+			ctx, dag := newNestingTestServer(t, "v1.0.0-beta.23+phosphor.5")
+			for _, disable := range []bool{false, true} {
+				args := []dagql.NamedInput{{Name: "args", Value: dagql.ArrayInput[dagql.String](dagql.NewStringArray(command.args...))}}
+				if disable {
+					args = append(args, dagql.NamedInput{Name: "disableDaggerInDagger", Value: dagql.Boolean(true)})
+				}
+				var ctr dagql.ObjectResult[*core.Container]
+				require.NoError(t, dag.Select(ctx, dag.Root(), &ctr,
+					dagql.Selector{Field: "container"},
+					dagql.Selector{Field: "withExec", Args: args},
+				))
+				lazy, ok := ctr.Self().Lazy.(*core.ContainerExecLazy)
+				require.True(t, ok)
+				require.Equal(t, !disable, lazy.State.Opts.ExperimentalPrivilegedNesting)
+				require.Equal(t, disable, lazy.State.Opts.DisableDaggerInDagger)
+				require.False(t, lazy.State.Opts.DaggerInDaggerNewSession)
+				require.Equal(t, command.args, lazy.State.Opts.Args)
+			}
+		})
+	}
+}
