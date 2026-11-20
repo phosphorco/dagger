@@ -624,6 +624,13 @@ func (s *gitSchema) git(ctx context.Context, parent dagql.ObjectResult[*core.Que
 		if err != nil {
 			return inst, fmt.Errorf("ssh auth socket ID: %w", err)
 		}
+		if !args.SSHAuthSocketScoped {
+			socket, err := args.SSHAuthSocket.Value.Load(ctx, srv)
+			if err != nil {
+				return inst, fmt.Errorf("load SSH auth socket: %w", err)
+			}
+			args.SSHAuthSocketScoped = socket.Self().Kind == core.SocketKindSSHHandle
+		}
 	}
 	var httpAuthTokenID *call.ID
 	if args.HTTPAuthToken.Valid {

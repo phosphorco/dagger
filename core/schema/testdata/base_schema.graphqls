@@ -84,7 +84,9 @@ type Address implements Node {
   """Load a service from the address."""
   service: Service!
 
-  """Load a local socket from the address."""
+  """
+  Load a local Unix socket, or a key-scoped SSH agent from ssh-agent:///absolute/path.
+  """
   socket: Socket!
 }
 
