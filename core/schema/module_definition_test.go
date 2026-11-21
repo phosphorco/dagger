@@ -57,7 +57,7 @@ func moduleDefinitionTestEnv(t *testing.T, path, session string, stub *moduleDef
 	query := core.NewRoot(server)
 	ctx := core.ContextWithQuery(t.Context(), query)
 	ctx = engine.ContextWithClientMetadata(ctx, &engine.ClientMetadata{ClientID: session, SessionID: session})
-	cache, err := dagql.NewCache(ctx, path, nil, nil)
+	cache, err := dagql.NewCache(ctx, path, nil, nil, dagql.WithEngineInstanceID("definition-test-"+session))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, cache.CloseDiscardingPersistence()) })
 	ctx = dagql.ContextWithCache(ctx, cache)

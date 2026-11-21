@@ -13,6 +13,7 @@ import (
 	"github.com/dagger/dagger/core/sdk"
 	"github.com/dagger/dagger/dagql"
 	dagqlintrospection "github.com/dagger/dagger/dagql/introspection"
+	"github.com/dagger/dagger/engine"
 	"github.com/dagger/dagger/util/gitutil"
 	"github.com/dagger/dagger/util/hashutil"
 	"github.com/vektah/gqlparser/v2/ast"
@@ -2079,6 +2080,13 @@ func (s *moduleSchema) currentModuleCacheKey(
 	args currentModuleArgs,
 	req *dagql.CallRequest,
 ) error {
+	scope, err := dagql.PerEngineCacheInput.Resolver(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if err := req.SetImplicitInput(ctx, dagql.PerEngineCacheInput.Name, scope); err != nil {
+		return err
+	}
 	if args.ImplementationScopedMod.Valid {
 		return nil
 	}
@@ -2095,8 +2103,14 @@ func (s *moduleSchema) currentModuleCacheKey(
 	if err != nil {
 		return fmt.Errorf("failed to get implementation-scoped current module ID: %w", err)
 	}
-	args.ImplementationScopedMod = dagql.Opt(dagql.NewID[*core.Module](scopedModID))
-	return req.SetArgInput(ctx, "implementationScopedMod", dagql.NewID[*core.Module](scopedModID), false)
+	req.SetArg(&dagql.ResultCallArg{
+		Name: "implementationScopedMod",
+		Value: &dagql.ResultCallLiteral{
+			Kind:      dagql.ResultCallLiteralKindResultRef,
+			ResultRef: &dagql.ResultCallRef{ResultID: scopedModID.EngineResultID()},
+		},
+	})
+	return nil
 }
 
 func (s *moduleSchema) currentModule(
@@ -2111,9 +2125,33 @@ func (s *moduleSchema) currentModule(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get dag server: %w", err)
 	}
-	mod, err := args.ImplementationScopedMod.Value.Load(ctx, dag)
+	id, err := args.ImplementationScopedMod.Value.ID()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load implementation-scoped module: %w", err)
+	}
+	var loaded dagql.AnyResult
+	if id != nil && id.IsHandle() {
+		cache, err := dagql.EngineCache(ctx)
+		if err != nil {
+			return nil, err
+		}
+		metadata, err := engine.ClientMetadataFromContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+		loaded, err = cache.LoadResultByResultIDForSchema(ctx, metadata.SessionID, dag, id.EngineResultID(), nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to acquire implementation-scoped module: %w", err)
+		}
+	} else {
+		loaded, err = dag.Load(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load implementation-scoped module: %w", err)
+		}
+	}
+	mod, ok := loaded.(dagql.ObjectResult[*core.Module])
+	if !ok {
+		return nil, fmt.Errorf("implementation-scoped module has unexpected result %T", loaded)
 	}
 	return &core.CurrentModule{Module: mod}, nil
 }
