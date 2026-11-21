@@ -74,7 +74,8 @@ type Opts struct {
 	// One server-owned no-child execution limit shared by all session clients.
 	// Nil is unlimited. Services and commands retaining Dagger API access are
 	// outside this bound, including the current API's default-nested commands.
-	ParallelismSem *semaphore.Weighted
+	ParallelismSem          *semaphore.Weighted
+	ExecutionMemoryMaxBytes int64
 
 	ExecutorRoot    string
 	TelemetryPubSub http.Handler
@@ -125,6 +126,9 @@ type sessionHandler interface {
 }
 
 func NewOpts(opts Opts) (*Opts, error) {
+	if opts.ExecutionMemoryMaxBytes < 0 {
+		return nil, fmt.Errorf("execution memoryMaxBytes must be nonnegative")
+	}
 	imageWriter, err := imageexport.NewWriter(imageexport.WriterOpt{
 		Snapshotter:  opts.Snapshotter,
 		ContentStore: opts.ContentStore,

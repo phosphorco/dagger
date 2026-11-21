@@ -54,6 +54,10 @@ func execErrorFromMetaRef(
 	meta *bkexecutor.Meta,
 	metaRef bkcache.ImmutableRef,
 ) (*ExecError, bool, error) {
+	var memoryError *engineutil.ExecutionMemoryError
+	if errors.As(cause, &memoryError) {
+		return nil, false, nil
+	}
 	if metaRef == nil {
 		return nil, false, nil
 	}

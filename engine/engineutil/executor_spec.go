@@ -580,7 +580,7 @@ func (c *Client) generateBaseSpec(ctx context.Context, state *execState) error {
 	if filepath.IsAbs(state.resourceCgroupPath) && !strings.Contains(state.resourceCgroupPath, ":") {
 		state.spec.Linux.CgroupsPath = filepath.Join(state.resourceCgroupPath, "container")
 	}
-	return nil
+	return c.setExecutionMemoryCeiling(state)
 }
 
 func (c *Client) filterEnvs(_ context.Context, state *execState) error {
@@ -1689,10 +1689,18 @@ func (c *Client) installCACerts(ctx context.Context, state *execState) error {
 	})
 	if err != nil {
 		bklog.G(ctx).Errorf("failed to create cacerts installer, falling back to not installing CA certs: %v", err)
+		var memoryError *ExecutionMemoryError
+		if errors.As(err, &memoryError) {
+			return err
+		}
 		return nil
 	}
 
 	err = caInstaller.Install(ctx)
+	var memoryError *ExecutionMemoryError
+	if errors.As(err, &memoryError) {
+		return err
+	}
 	switch {
 	case err == nil:
 		state.cleanups.Add("uninstall CA certs", func() error {
@@ -1712,6 +1720,13 @@ func (c *Client) installCACerts(ctx context.Context, state *execState) error {
 
 //nolint:gocyclo
 func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error) {
+	var memoryLimit int64
+	if c.ExecutionMemoryMaxBytes > 0 {
+		if state.spec.Linux == nil || state.spec.Linux.Resources == nil || state.spec.Linux.Resources.Memory == nil || state.spec.Linux.Resources.Memory.Limit == nil || *state.spec.Linux.Resources.Memory.Limit <= 0 {
+			return fmt.Errorf("execution memory ceiling is not present in the OCI specification")
+		}
+		memoryLimit = *state.spec.Linux.Resources.Memory.Limit
+	}
 	bundle := filepath.Join(c.ExecutorRoot, state.id)
 	if err := os.Mkdir(bundle, 0o711); err != nil {
 		return err
@@ -2034,6 +2049,7 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 				ConsoleSocket: consoleSocket,
 				PidFile:       pidFile,
 				ExtraFiles:    initFDs.files,
+				ExtraArgs:     executionMemoryRuntimeArgs(memoryLimit),
 			})
 			return err
 		})
@@ -2093,7 +2109,11 @@ func (c *Client) runContainer(ctx context.Context, state *execState) (rerr error
 		releasedWall = workloadReleasedAt(pidFile, profStartedWallTime)
 	}
 	emitOTelExecSplit(ctx, state.id, profStartWall, profStartedWallTime, releasedWall, endWall, runErr, profArgv, phaseOps)
-	return exitError(ctx, state.exitCodePath, runErr, state.procInfo.Meta.ValidExitCodes)
+	memoryDirectory := ""
+	if memoryLimit > 0 {
+		memoryDirectory = filepath.Join("/sys/fs/cgroup", state.spec.Linux.CgroupsPath)
+	}
+	return completeExecutionMemoryBound(ctx, state, runErr, memoryLimit, memoryDirectory)
 }
 
 // runtimeBoundMount reports whether the container runtime, not the engine,

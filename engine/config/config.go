@@ -45,6 +45,11 @@ type Config struct {
 
 	// CacheVolumes configures where the engine keeps cache volumes.
 	CacheVolumes CacheVolumesConfig `json:"cacheVolumes,omitempty"`
+	Execution    *ExecutionConfig   `json:"execution,omitempty"`
+}
+
+type ExecutionConfig struct {
+	MemoryMaxBytes int64 `json:"memoryMaxBytes,omitempty" jsonschema:"minimum=0"`
 }
 
 type CacheVolumesConfig struct {

@@ -270,6 +270,13 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 	cfg := opts.Config
 	bkcfg := opts.BuildkitConfig
 	ociCfg := bkcfg.Workers.OCI
+	var executionMemoryMaxBytes int64
+	if cfg.Execution != nil {
+		executionMemoryMaxBytes = cfg.Execution.MemoryMaxBytes
+		if executionMemoryMaxBytes < 0 {
+			return nil, fmt.Errorf("execution memoryMaxBytes must be nonnegative")
+		}
+	}
 	parallelismSem, err := newExecutionParallelism(ociCfg.MaxParallelism)
 	if err != nil {
 		return nil, err
@@ -522,10 +529,12 @@ func NewServer(ctx context.Context, opts *NewServerOpts) (*Server, error) {
 		Applier:          winlayers.NewFileSystemApplierWithWindows(srv.contentStore, apply.NewFileSystemApplier(srv.contentStore)),
 		Differ:           winlayers.NewWalkingDiffWithWindows(srv.contentStore, walking.NewWalkingDiff(srv.contentStore)),
 		IdentityMapping:  nil, // no idmapping
-		ParallelismSem:   parallelismSem,
 		ExecutorRoot:     srv.executorRootDir,
 		TelemetryPubSub:  srv.telemetryPubSub,
 		SessionHandler:   srv,
+
+		ParallelismSem:          parallelismSem,
+		ExecutionMemoryMaxBytes: executionMemoryMaxBytes,
 
 		Runc:                srv.runc,
 		DefaultCgroupParent: srv.cgroupParent,
