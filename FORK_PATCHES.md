@@ -82,3 +82,30 @@ rosetta-machine builder consumes a single immutable fork commit, never a patch f
 - **Drop when:** the selected upstream constructor provides the same declared
   execution domain, lifecycle-bound permit and configuration validation, with
   all these tests passing unchanged.
+
+## Engine-owned current module context
+
+- **Upstream delta:** `Query.currentModule` is scoped to the engine cache. Its
+  implementation-scoped module argument retains the native result number;
+  resolution uses the existing operational schema-module acquisition, which
+  prefers that healthy recorded result over an equivalent imported value.
+- **Why patch now:** normal argument normalization and ID loading can substitute
+  an imported equivalent for a freshly acquired native module. Imported local
+  paths correctly refuse access, so a check moved between engines can lose its
+  verdict. An imported `CurrentModule` value can produce the same refusal.
+  The beta.23 deployed baseline reproduces it too; phosphor.10 did not introduce
+  the guard. Its rate in ordinary baseline runs is not established.
+- **Regression:** `core/schema/imported_current_module_context_test.go`,
+  `TestImportedModuleDefinitionKeepsCurrentLocalContext`, uses two real caches
+  and exported/imported module definitions. It covers definition-only reuse,
+  current-module values from repaired and legacy producers, and a client ID
+  retained across engines. Type discovery stays reused without an SDK call;
+  native context remains usable, repeat reflection reuses locally, and direct
+  foreign paths still refuse access. The unchanged beta.23 baseline fails.
+- **Cost:** current-module reflection from another engine is recomputed locally.
+  Portable definitions remain shared. No cache clear or foreign-path guard
+  relaxation is needed; installed-module and session-resource checks remain.
+- **Drop when:** the selected upstream version separates live module context
+  from portable definition equivalence at argument acquisition, handle loading
+  and current-module reuse, including legacy imported caches, with this
+  regression and the foreign-context reader tests passing.
