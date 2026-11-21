@@ -109,3 +109,42 @@ rosetta-machine builder consumes a single immutable fork commit, never a patch f
   from portable definition equivalence at argument acquisition, handle loading
   and current-module reuse, including legacy imported caches, with this
   regression and the foreign-context reader tests passing.
+
+## Private per-execution memory ceiling
+
+- **Upstream delta:** optional `execution.memoryMaxBytes` confines each primary
+  OCI command and its descendants to a private cgroup v2 memory ceiling, with
+  swap disabled and group OOM termination. The default remains disabled.
+  Stricter existing limits are retained; byte ceilings round down to kernel
+  pages. The runtime retains the cgroup until its local OOM evidence is read,
+  before the existing cleanup removes it.
+- **Why patch now:** a compiler started by an older client used about 60 GiB of
+  a shared 64 GiB engine. Protection in a new repository checkout cannot cover
+  that client or the next misbehaving command. The execution owner can.
+- **Regression:** `engine/engineutil/execution_memory_test.go` covers the real
+  OCI specification, stricter limits and page granularity, local OOM versus
+  reclaim or ancestor kills, missing evidence, and tolerated native exits.
+  `core/exec_memory_error_test.go` prevents a resource failure from acquiring a
+  program-exit error with a zero exit code. Config/server tests cover optional
+  numeric configuration and refusal of negative values before startup.
+  Offshared kernel/API controls use existing client pins 7 and 8: an actual
+  128 MiB allocation passes with the default and exceeds a 64 MiB limit by
+  name with `ANY`, while a live sibling retains its instance, the daemon keeps
+  its PID/start time and ordinary exit 7 remains exit 7.
+- **Failure contract:** only a local cgroup OOM proves
+  `ExecutionMemoryBoundExceeded`; reclaim and an ancestor's kill do not.
+  Missing required kernel evidence is `ExecutionMemoryBoundObservationUnavailable`.
+  A proved resource failure cannot be accepted by an arbitrary-exit caller.
+  Docker's `OOMKilled` flag can become true for a confined descendant while
+  the daemon remains running; use the named execution evidence, actual process
+  identity and scoped kernel counters to distinguish that from daemon harm.
+- **Cost and limits:** Linux cgroup v2 filesystem paths are required when
+  enabled. This is a ceiling, not a memory reservation or aggregate admission
+  policy. No successful cache entry is invalidated. A proposed 24 GiB pool
+  ceiling leaves 11.38 GiB above the measured 12.62 GiB ordinary peak; two
+  observed peaks leave 38.76 GiB of the 64 GiB parent before other work. Two
+  ceilings leave 16 GiB for the daemon and helpers; the Go heap target does not
+  bound daemon RSS. Pool activation is separate from this source change.
+- **Drop when:** the selected upstream provides a private per-execution ceiling
+  with local OOM proof before arbitrary exits are admitted, preserves cleanup
+  and sibling isolation, and passes these regressions and old-client controls.
