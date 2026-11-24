@@ -152,6 +152,7 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 	demand := &PartDemandState{target: clonePartAddress(address)}
 	ctx = context.WithValue(ctx, partDemandContextKey{}, demand)
 	outer := partReselectWatch{loop: "demandPart"}
+	recomputed := false
 	for {
 		outer.again(ctx, res.cacheSharedResult(), address)
 		err := c.RunLazyTask(ctx, res, partTaskKey("acquire", address), LazyTaskSpec{Body: func(ctx context.Context) error {
@@ -284,7 +285,7 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 					continue
 				}
 				if !route.HasLazyOperation {
-					return errors.Join(fmt.Errorf("%w: %s", ErrUnavailablePart, key), demand.causes())
+					return c.retireUnavailableImportedPart(ctx, res, address, demand)
 				}
 				err = c.runLazyOperationDecision(ctx, res, address, route, demand)
 				if partCanReselect(err) {
@@ -298,6 +299,26 @@ func (c *Cache) demandPart(ctx context.Context, res AnyResult, address Persisted
 				}
 			}
 		}})
+		// Replay only after RunLazyTask has settled: replay may demand this row
+		// through an equivalent call and must not join its own acquire task.
+		var retired *importedPartRetired
+		if partCanReselect(err) && errors.As(err, &retired) {
+			if recomputed {
+				return fmt.Errorf("ImportedPartRecomputeUnavailable: %w", retired)
+			}
+			recomputed = true
+			native, replayErr := CurrentDagqlServer(ctx).LoadReplayable(ctx, retired.recipe)
+			if replayErr == nil && (native == nil || native.cacheSharedResult() == res.cacheSharedResult()) {
+				replayErr = errors.New("replay returned no replacement for the retired receiver")
+			}
+			if replayErr == nil {
+				replayErr = c.EvaluateParts(ctx, native, address.Part)
+			}
+			if replayErr != nil {
+				return errors.Join(fmt.Errorf("ImportedPartRecomputeFailed: %w", retired), replayErr)
+			}
+			continue
+		}
 		if partCanReselect(err) {
 			outer.refused(err)
 			continue

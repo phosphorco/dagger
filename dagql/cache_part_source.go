@@ -195,14 +195,15 @@ func (c *Cache) partLookupFor(row *sharedResult) (partLookup, error) {
 }
 
 type partCandidate struct {
-	row     *sharedResult
-	route   CacheHitRoute
-	facts   partSourceFacts
-	record  PersistedRecord
-	version capturedRowRevision
-	probe   *PartProbe
-	offer   *PersistedPartOffer
-	owner   *offerOwner
+	offerRefusal string
+	row          *sharedResult
+	route        CacheHitRoute
+	facts        partSourceFacts
+	record       PersistedRecord
+	version      capturedRowRevision
+	probe        *PartProbe
+	offer        *PersistedPartOffer
+	owner        *offerOwner
 	// unready is set when the row could not be captured in this scan. It has
 	// no validated record, so nothing about it may be selected, its offer
 	// included.
@@ -508,6 +509,10 @@ func (c *Cache) scanPartSources(ctx context.Context, receiver AnyResult, address
 			candidate.offer = &copies[0]
 			candidate.owner = offer.owner
 			c.retainOfferOwnerLocked(offer.owner)
+		} else if offer == nil {
+			candidate.offerRefusal = "no offer"
+		} else {
+			candidate.offerRefusal = "offer owner not admitted"
 		}
 	}
 	c.egraphMu.Unlock()
@@ -672,6 +677,9 @@ func (c *Cache) partSourceDependenciesLocked(source *PartSourceLease) []uint64 {
 func partCanReselect(err error) bool {
 	if err == nil {
 		return false
+	}
+	if _, ok := err.(*importedPartRetired); ok {
+		return true
 	}
 	if joined, ok := err.(interface{ Unwrap() []error }); ok {
 		causes := joined.Unwrap()
