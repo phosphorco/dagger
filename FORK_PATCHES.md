@@ -148,3 +148,36 @@ rosetta-machine builder consumes a single immutable fork commit, never a patch f
 - **Drop when:** the selected upstream provides a private per-execution ceiling
   with local OOM proof before arbitrary exits are admitted, preserves cleanup
   and sibling isolation, and passes these regressions and old-client controls.
+
+## Unrecoverable imported operation-none part — phosphor.13
+
+- **Upstream delta:** when an imported top-level field result has no ready
+  equivalent, usable offer, parent delegation or saved lazy operation, expire
+  and retire it from lookup under the graph lock, then reselect and replay its
+  recorded call after the acquire task settles. The native result supplies the
+  original holder's part. The retirement error remains both reselect-class and
+  `ErrUnavailablePart`; joined cleanup failures are never swallowed by retry.
+- **Why patch now:** an imported operation-none Directory can otherwise remain
+  a cache hit after its last offer expires, failing every demand. PR 6 handles
+  a donor whose capture changed, not this no-source branch.
+- **Safety/refusal:** revalidate the receiver and all scanned candidate facts
+  before retirement. Replay uses `LoadReplayable`, which enforces the existing
+  field replay restrictions. Inline outputs, non-field/nth recipes, missing
+  servers refuse by name with the scanned candidates' reasons. A structurally
+  non-replayable field is never run automatically: its dead root is retired and
+  the demand refuses by name, so a later normally issued call can compute fresh.
+  Replay failure retains candidate reasons and its own cause.
+  Usable offers and native lazy operations retain their existing paths.
+- **Regression:** `TestImportedOperationNoneDirectoryRecomputesExpiredOffer`
+  exports a real operation-none Directory with an expired-only offer. Before
+  the patch both demands fail, the next lookup serves the same imported row,
+  and the native resolver runs zero times. Afterward the demand succeeds and
+  the next lookup uses its natively computed replacement. Controls cover eight
+  concurrent demands with one recomputation, a usable download without replay,
+  missing replay context and a non-replayable field that must not execute during
+  recovery or explicit replay, but whose next normal call must miss the dead row.
+  `TestImportedPartRetirementPreservesRecoveryAndCleanupClasses` protects error
+  identities and propagation of an independent cleanup failure.
+- **Drop when:** the selected upstream no-source path retires unrecoverable
+  imports across every lookup route and safely recomputes replayable calls,
+  while preserving named refusals, holders and these regressions.
