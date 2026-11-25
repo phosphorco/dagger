@@ -42,7 +42,16 @@ func (ModuleGitClientReadsSuite) TestSelectionsShareDeclarationRead(ctx context.
 		query := filepath.Join(evidence, fmt.Sprintf("query-%d.graphql", count))
 		require.NoError(t, os.WriteFile(query, []byte("{ readProbe { "+strings.Join(selections, " ")+" } }"), 0o600))
 		trace := filepath.Join(evidence, fmt.Sprintf("client-reads-%d.strace", count))
-		cmd := hostDaggerCommandRaw(ctx, t, root, "api", "query", "--doc="+query)
+		cmd := hostDaggerCommandRaw(ctx, t, root, "--workspace="+root, "api", "query", "--doc="+query)
+		cmd.Env = nil
+		for _, entry := range os.Environ() {
+			key, _, _ := strings.Cut(entry, "=")
+			switch key {
+			case "DAGGER_MODULE", "DAGGER_SESSION_PORT", "DAGGER_SESSION_TOKEN", "DAGGER_SESSION_CLIENT_ID":
+				continue
+			}
+			cmd.Env = append(cmd.Env, entry)
+		}
 		cmd.Args = append([]string{strace, "-f", "-s", "1024", "-e", "trace=newfstatat,statx,openat", "-o", trace}, cmd.Args...)
 		cmd.Path = strace
 		var stdout, stderr strings.Builder
