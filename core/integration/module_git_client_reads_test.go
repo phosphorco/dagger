@@ -28,6 +28,7 @@ func (ModuleGitClientReadsSuite) TestSelectionsShareDeclarationRead(ctx context.
 	module := filepath.Join(root, "dagger", "read-probe")
 	require.NoError(t, os.MkdirAll(module, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "dagger.toml"), []byte("[modules.read-probe]\nsource = \"dagger/read-probe\"\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(module, "dagger.toml"), []byte("\n"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(module, "dagger-module.toml"), []byte("name = \"read-probe\"\nengineVersion = \"v1.0.0-beta.23\"\n[runtime]\nsource = \"dang\"\n"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(module, "main.dang"), []byte("type ReadProbe { pub echo(value: String!): String! { value } }\n"), 0o600))
 	reads := func(count int) int {
