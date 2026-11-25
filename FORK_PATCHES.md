@@ -236,6 +236,13 @@ rosetta-machine builder consumes a single immutable fork commit, never a patch f
   expiry, and successful recovery/reuse. `testing/synctest` advances the actual
   ten-second production deadline without real-time sleeps. Existing declaration
   sharing, cancellation, key separation and value/trust controls remain required.
+- **Installed-engine proof limit:** the function-boundary test's reader returns
+  on context cancellation by construction. Whether real filesync `RecvMsg`
+  returns on expiry is supported by its context-carrying source path, not a
+  witnessed installed-engine fault. If a transport ignored cancellation, its
+  shared flight could remain parked; each selection still has its own ten-second
+  bound and proceeds uncached. Healthy read counts and ordinary/older-client
+  verdicts do not establish this fault-path observation.
 - **Drop when:** the selected upstream declaration lookup and any shared load
   impose the same finite wait, preserve uncached unreadable fallback and healthy
   digest/session semantics, and pass these function-boundary regressions.
