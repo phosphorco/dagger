@@ -213,3 +213,29 @@ rosetta-machine builder consumes a single immutable fork commit, never a patch f
   reads at the same session/source boundary while preserving failed-read
   no-reuse, non-empty session binding and explicit workspace-epoch changes,
   with the client-read and lifetime regressions passing.
+
+## Bounded declared-Git-client reads
+
+- **Upstream delta:** module-function declaration lookup and its shared load each
+  have a ten-second deadline. The selection deadline bounds an individual waiter;
+  the load deadline is created inside the shared computation, so later waiters
+  cannot extend it. An expired load cannot publish a successful memo value.
+- **Why patch now:** a caller filesync stat/read can remain blocked. Sharing that
+  read without its own deadline amplifies one stuck stream into every same-key
+  selection in the session while any waiter remains. This is a source-proved
+  path, not an attribution of any observed production stall.
+- **Failure contract:** cancellation/deadline follows the existing fresh
+  `unreadable:` digest path. Failed reads remain uncached; a later selection can
+  retry. Healthy empty and non-empty digests and session/host/source/epoch
+  separation are unchanged. This bounds the declaration lookup, not all host
+  imports or unrelated filesync operations.
+- **Regression:** `TestGitClientDeclarationsBoundUnreadableSelections` exercises
+  `ModuleFunction.declaredGitClientsDigest` with a file resolver that stays
+  blocked until cancellation, both with and without the session memo. It covers
+  a waiter joining five seconds later, fresh unreadable digests for repeated
+  expiry, and successful recovery/reuse. `testing/synctest` advances the actual
+  ten-second production deadline without real-time sleeps. Existing declaration
+  sharing, cancellation, key separation and value/trust controls remain required.
+- **Drop when:** the selected upstream declaration lookup and any shared load
+  impose the same finite wait, preserve uncached unreadable fallback and healthy
+  digest/session semantics, and pass these function-boundary regressions.
