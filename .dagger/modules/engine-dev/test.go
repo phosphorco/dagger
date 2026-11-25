@@ -553,7 +553,7 @@ func (dev *EngineDev) testContainer(ctx context.Context, ebpfProgs []string, wcp
 	utilDirPath := "/dagger-dev"
 	goToolchain := dag.Go(dagger.GoOpts{Source: dev.Source, VcsCommit: dev.VCSCommit, VcsDirty: dev.VCSDirty, Ws: dev.Ws,
 		// Exercise real client-managed agents and encrypted key loading.
-		ExtraPackages: []string{"openssh-client", "curl"},
+		ExtraPackages: []string{"openssh-client", "curl", "strace"},
 	})
 	ldflagValues, err := goToolchain.Values(ctx)
 	if err != nil {

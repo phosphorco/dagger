@@ -181,3 +181,31 @@ rosetta-machine builder consumes a single immutable fork commit, never a patch f
 - **Drop when:** the selected upstream no-source path retires unrecoverable
   imports across every lookup route and safely recomputes replayable calls,
   while preserving named refusals, holders and these regressions.
+
+## Session-scoped declared Git clients — phosphor.14
+
+- **Upstream delta:** successful declared-Git-client digests are shared within
+  the owning engine session for one module source, caller host and workspace
+  read epoch. The session clears the memo after its clients drain. Failed reads
+  remain uncached and produce a fresh unreadable input on every call; non-empty
+  declarations retain the existing per-session input.
+- **Why patch now:** the client declaration walk precedes module-function
+  selection. A measured package check made 1,439 stats and 481 reads of
+  `dagger.toml`; runner round trips held a median check for about 285 seconds.
+- **Regression:** `core/integration/module_git_client_reads_test.go` counts
+  actual CLI declaration reads for one and twenty module selections. Focused
+  core tests cover shared successful reads, failed-read recovery, source/host/
+  epoch/session separation, cancellation and fresh unreadable digests; the
+  engine session teardown test checks disposal.
+- **Qualification:** the client-read regression is red on the serving
+  phosphor.11 engine, whose exercised declaration reader and digest method are
+  byte-identical to this phosphor.13 base. Exact-base and candidate native
+  client-read proofs pass, with seven declared-Git trust controls. The focused
+  function-boundary law compares memoised and unmemoised empty and non-empty
+  values, and requires fresh unreadable values without failures. First-install
+  qualification includes unchanged ordinary checks in two sessions while
+  withdrawn; timing is observed from ordinary CI after return.
+- **Drop when:** the selected upstream release shares successful declaration
+  reads at the same session/source boundary while preserving failed-read
+  no-reuse, non-empty session binding and explicit workspace-epoch changes,
+  with the client-read and lifetime regressions passing.

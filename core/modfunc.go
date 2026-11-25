@@ -885,21 +885,35 @@ func (fn *ModuleFunction) declaredGitClientsDigest(ctx context.Context) (string,
 	if err != nil {
 		return "", err
 	}
-	declared, err := ModuleDeclaredGitClients(ctx, dag, mod.Source.Value.Self())
+	load := func(ctx context.Context) (string, error) {
+		declared, err := ModuleDeclaredGitClients(ctx, dag, mod.Source.Value.Self())
+		if err != nil {
+			return "", err
+		}
+		if len(declared) == 0 {
+			return "", nil
+		}
+		keys := make([]string, 0, len(declared))
+		for _, ref := range declared {
+			keys = append(keys, workspace.GitClientKey(ref))
+		}
+		slices.Sort(keys)
+		return hashutil.HashStrings(append([]string{declaredGitClientsInput}, slices.Compact(keys)...)...).String(), nil
+	}
+	lookup := load
+	if query, err := CurrentQuery(ctx); err == nil {
+		memo, memoErr := query.SessionGitClientDeclarations(ctx)
+		if memoErr == nil && memo != nil {
+			if key, keyErr := moduleGitClientDeclarationKey(ctx, mod.Source.Value); keyErr == nil {
+				lookup = func(ctx context.Context) (string, error) { return memo.get(ctx, key, load) }
+			}
+		}
+	}
+	value, err := lookup(ctx)
 	if err != nil {
-		// A declaration that cannot be read must not fail calls that never
-		// serve a git client, nor let a result computed meanwhile be reused.
 		return "unreadable:" + rand.Text(), nil //nolint:nilerr // deliberate: no failure and no reuse
 	}
-	if len(declared) == 0 {
-		return "", nil
-	}
-	keys := make([]string, 0, len(declared))
-	for _, ref := range declared {
-		keys = append(keys, workspace.GitClientKey(ref))
-	}
-	slices.Sort(keys)
-	return hashutil.HashStrings(append([]string{declaredGitClientsInput}, slices.Compact(keys)...)...).String(), nil
+	return value, nil
 }
 
 // declaredClientsDigest digests the local clients the current workspace

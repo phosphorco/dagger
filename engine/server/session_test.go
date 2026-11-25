@@ -2879,9 +2879,11 @@ func TestSessionTeardownFlushesTraceTelemetryAfterMetricShutdown(t *testing.T) {
 	require.NoError(t, err)
 	gauge.Record(cleanupCtx, 1)
 	sess.schemaBuilderMemo.Store(core.NewSchemaBuilderMemo())
+	sess.gitClientDeclarations.Store(core.NewGitClientDeclarations())
 
 	require.NoError(t, srv.removeDaggerSession(t.Context(), sess))
 	require.Nil(t, sess.schemaBuilderMemo.Load(), "the session's schema memo is dropped with it")
+	require.Nil(t, sess.gitClientDeclarations.Load(), "the session declaration memo is dropped with it")
 	require.Nil(t, client.telemetryDB)
 	require.Equal(t, clientdb.OpenStats{}, srv.clientDBs.OpenStats())
 	select {
