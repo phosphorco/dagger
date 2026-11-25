@@ -53,22 +53,38 @@ func (ModuleGitClientReadsSuite) TestSelectionsShareDeclarationRead(ctx context.
 			}
 			cmd.Env = append(cmd.Env, entry)
 		}
-		cmd.Args = append([]string{strace, "-f", "-s", "1024", "-e", "trace=newfstatat,statx,openat", "-o", trace}, cmd.Args...)
+		cmd.Args = append([]string{strace, "-f", "-s", "1024", "-e", "trace=%file", "-o", trace}, cmd.Args...)
 		cmd.Path = strace
 		var stdout, stderr strings.Builder
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
-		require.NoError(t, cmd.Run(), stderr.String())
+		runErr := cmd.Run()
+		raw, readErr := os.ReadFile(trace)
+		excerpt := make([]string, 0)
+		for line := range strings.SplitSeq(string(raw), "\n") {
+			if strings.Contains(line, "dagger.toml") && len(excerpt) < 96 {
+				excerpt = append(excerpt, line)
+			}
+		}
+		if len(excerpt) == 0 {
+			for line := range strings.SplitSeq(string(raw), "\n") {
+				if len(excerpt) == 64 {
+					break
+				}
+				excerpt = append(excerpt, line)
+			}
+		}
+		t.Logf("client file syscall excerpt:\n%s", strings.Join(excerpt, "\n"))
+		require.NoError(t, runErr, stderr.String())
+		require.NoError(t, readErr)
 		var response map[string]string
 		require.NoError(t, json.Unmarshal([]byte(stdout.String()), &response), stdout.String())
 		version := response["version"]
 		require.NotEmpty(t, version, "the native query must identify its engine")
 		delete(response, "version")
 		require.Equal(t, expected, response)
-		raw, err := os.ReadFile(trace)
-		require.NoError(t, err)
 		opened := 0
 		for line := range strings.SplitSeq(string(raw), "\n") {
-			if strings.Contains(line, "openat(") && strings.Contains(line, "dagger.toml\"") && !strings.Contains(line, "= -1") {
+			if (strings.Contains(line, "openat(") || strings.Contains(line, "openat2(") || strings.Contains(line, "open(")) && strings.Contains(line, "dagger.toml\"") && !strings.Contains(line, "= -1") {
 				opened++
 			}
 		}
