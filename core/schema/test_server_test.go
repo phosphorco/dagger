@@ -110,6 +110,10 @@ func (s *currentTypeDefsTestServer) SessionSchemaBuilderMemo(context.Context) (*
 	return nil, nil
 }
 
+func (s *currentTypeDefsTestServer) SessionGitClientDeclarations(context.Context) (*core.GitClientDeclarations, error) {
+	return nil, nil
+}
+
 func (s *currentTypeDefsTestServer) TelemetrySeenKeyStore(context.Context) (dagql.TelemetrySeenKeyStore, error) {
 	return nil, nil
 }

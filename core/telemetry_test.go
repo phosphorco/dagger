@@ -185,6 +185,10 @@ func (ms *mockServer) SchemaBuilderMemo(context.Context) (*SchemaBuilderMemo, er
 func (ms *mockServer) SessionSchemaBuilderMemo(context.Context) (*SchemaBuilderMemo, error) {
 	return nil, nil
 }
+
+func (ms *mockServer) SessionGitClientDeclarations(context.Context) (*GitClientDeclarations, error) {
+	return nil, nil
+}
 func (ms *mockServer) Cache(context.Context) (*dagql.Cache, error) { return nil, nil }
 func (ms *mockServer) TelemetrySeenKeyStore(context.Context) (dagql.TelemetrySeenKeyStore, error) {
 	return nil, nil

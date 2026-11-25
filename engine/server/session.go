@@ -80,7 +80,8 @@ type daggerSession struct {
 	// call made from inside a module runs in a fresh nested client, so a
 	// per-client memo would rebuild the callee's schema on every call. It
 	// is cleared once the session's client scopes have drained.
-	schemaBuilderMemo atomic.Pointer[core.SchemaBuilderMemo]
+	schemaBuilderMemo     atomic.Pointer[core.SchemaBuilderMemo]
+	gitClientDeclarations atomic.Pointer[core.GitClientDeclarations]
 
 	// wcprofEnabled means this session opted into wall-clock profiling
 	// (ClientMetadata.Profile); work for all its clients (including nested
@@ -1331,6 +1332,7 @@ func (srv *Server) removeDaggerSession(ctx context.Context, sess *daggerSession)
 	}
 	step.end()
 	sess.schemaBuilderMemo.Store(nil)
+	sess.gitClientDeclarations.Store(nil)
 	afterDagqlEntries := srv.engineCache.Size()
 	afterDagqlStats := srv.engineCache.EntryStats()
 	if afterDagqlEntries != beforeDagqlEntries {
@@ -1417,6 +1419,7 @@ func (srv *Server) getOrCreateSessionLocked(sessionID, clientID string) (*dagger
 		clientRuntimes:     map[string]*clientRuntime{},
 	}
 	sess.schemaBuilderMemo.Store(core.NewSchemaBuilderMemo())
+	sess.gitClientDeclarations.Store(core.NewGitClientDeclarations())
 	sess.lifecycleMu.Lock()
 	srv.daggerSessions[sessionID] = sess
 	return sess, true, nil
@@ -4070,6 +4073,14 @@ func (srv *Server) SessionSchemaBuilderMemo(ctx context.Context) (*core.SchemaBu
 		return nil, err
 	}
 	return client.daggerSession.schemaBuilderMemo.Load(), nil
+}
+
+func (srv *Server) SessionGitClientDeclarations(ctx context.Context) (*core.GitClientDeclarations, error) {
+	client, err := srv.executableClientFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return client.daggerSession.gitClientDeclarations.Load(), nil
 }
 
 func (srv *Server) TelemetrySeenKeyStore(ctx context.Context) (dagql.TelemetrySeenKeyStore, error) {

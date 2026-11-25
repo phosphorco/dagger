@@ -146,6 +146,8 @@ type Server interface {
 	// disables memoization.
 	SessionSchemaBuilderMemo(context.Context) (*SchemaBuilderMemo, error)
 
+	SessionGitClientDeclarations(context.Context) (*GitClientDeclarations, error)
+
 	// The telemetry seen-key store for the current client's session.
 	TelemetrySeenKeyStore(context.Context) (dagql.TelemetrySeenKeyStore, error)
 
