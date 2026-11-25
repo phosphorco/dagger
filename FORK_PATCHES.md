@@ -189,6 +189,8 @@ rosetta-machine builder consumes a single immutable fork commit, never a patch f
   read epoch. The session clears the memo after its clients drain. Failed reads
   remain uncached and produce a fresh unreadable input on every call; non-empty
   declarations retain the existing per-session input.
+- **Upstream origin:** change 14493, included in base `f0a3d728`, introduced
+  the declared-client walk before each module-function selection.
 - **Why patch now:** the client declaration walk precedes module-function
   selection. A measured package check made 1,439 stats and 481 reads of
   `dagger.toml`; runner round trips held a median check for about 285 seconds.
@@ -205,6 +207,8 @@ rosetta-machine builder consumes a single immutable fork commit, never a patch f
   values, and requires fresh unreadable values without failures. First-install
   qualification includes unchanged ordinary checks in two sessions while
   withdrawn; timing is observed from ordinary CI after return.
+- **Residual:** editing a declaration during a session without changing its
+  workspace read epoch is not noticed until the next session.
 - **Drop when:** the selected upstream release shares successful declaration
   reads at the same session/source boundary while preserving failed-read
   no-reuse, non-empty session binding and explicit workspace-epoch changes,
