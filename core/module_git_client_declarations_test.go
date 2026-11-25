@@ -8,6 +8,7 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine"
 	"github.com/stretchr/testify/require"
 )
@@ -151,4 +152,87 @@ func TestGitClientDeclarationsUnreadableDoesNotFailOrReuse(t *testing.T) {
 	require.Contains(t, first, "unreadable:")
 	require.Contains(t, second, "unreadable:")
 	require.NotEqual(t, first, second)
+}
+
+type gitDeclarationValueTestServer struct {
+	gitDeclarationServer
+	memo *GitClientDeclarations
+}
+
+func (s *gitDeclarationValueTestServer) SessionGitClientDeclarations(context.Context) (*GitClientDeclarations, error) {
+	return s.memo, nil
+}
+
+func TestGitClientDeclarationsMemoPreservesFunctionBoundaryValue(t *testing.T) {
+	const config = `[modules.go]
+source = "go"
+[sdks.go]
+module = "go"
+[sdks.go.scopes."modules/caller"]
+is-module = true
+clients = ["github.com/acme/private/hello@main", "https://github.com/acme/other.git/lib"]
+`
+	for _, tc := range []struct {
+		name, config string
+		unreadable   bool
+	}{
+		{name: "empty", config: ""},
+		{name: "nonempty", config: config},
+		{name: "unreadable", unreadable: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newModuleOwnershipTest(t)
+			ctx := f.session("declaration-value")
+			ExistsTypes.Install(f.dag)
+			f.dag.InstallObject(dagql.NewClass(f.dag, dagql.ClassOpts[*Directory]{Typed: &Directory{}}))
+			f.dag.InstallObject(dagql.NewClass(f.dag, dagql.ClassOpts[*File]{Typed: &File{}}))
+			dagql.Fields[*Directory]{
+				dagql.Func("exists", func(_ context.Context, _ *Directory, args struct {
+					Path         string
+					ExpectedType dagql.Optional[ExistsType]
+				}) (bool, error) { if tc.unreadable {
+					return false, errors.New("declaration unavailable")
+				}; return args.Path == "dagger.toml", nil }),
+				dagql.Func("file", func(_ context.Context, _ *Directory, _ struct{ Path string }) (*File, error) { return &File{}, nil }),
+			}.Install(f.dag)
+			dagql.Fields[*File]{
+				dagql.Func("contents", func(context.Context, *File, struct{}) (string, error) { return tc.config, nil }),
+			}.Install(f.dag)
+			tree := newTypeDefAttachedResult(t, ctx, f.cache, f.dag, "declaration-tree", &Directory{})
+			mod := f.module(ctx, "DeclarationValue", moduleOwnershipModuleOpts{})
+			src := mod.Self().Source.Value.Self()
+			src.SourceRootSubpath = "modules/caller"
+			src.DirSrc = &DirModuleSource{OriginalContextDir: tree}
+			source := newTypeDefAttachedResult(t, ctx, f.cache, f.dag, "declaration-source", src)
+			mod.Self().Source = dagql.NonNull(source)
+			_, err := moduleGitClientDeclarationKey(ctx, source)
+			require.NoError(t, err)
+			server := &gitDeclarationValueTestServer{gitDeclarationServer: f.root.Server}
+			f.root.Server = server
+			fn := &ModuleFunction{mod: mod}
+			direct, err := fn.declaredGitClientsDigest(ctx)
+			require.NoError(t, err)
+			server.memo = NewGitClientDeclarations()
+			first, err := fn.declaredGitClientsDigest(ctx)
+			require.NoError(t, err)
+			second, err := fn.declaredGitClientsDigest(ctx)
+			require.NoError(t, err)
+			if tc.unreadable {
+				for _, value := range []string{direct, first, second} {
+					require.Contains(t, value, "unreadable:")
+				}
+				require.NotEqual(t, direct, first)
+				require.NotEqual(t, direct, second)
+				require.NotEqual(t, first, second)
+			} else {
+				require.Equal(t, direct, first)
+				require.Equal(t, direct, second)
+				if tc.name == "empty" {
+					require.Empty(t, direct)
+				} else {
+					require.NotEmpty(t, direct)
+				}
+			}
+		})
+	}
 }

@@ -182,7 +182,7 @@ rosetta-machine builder consumes a single immutable fork commit, never a patch f
   imports across every lookup route and safely recomputes replayable calls,
   while preserving named refusals, holders and these regressions.
 
-## Session-scoped declared Git clients
+## Session-scoped declared Git clients — phosphor.14
 
 - **Upstream delta:** successful declared-Git-client digests are shared within
   the owning engine session for one module source, caller host and workspace
@@ -199,8 +199,12 @@ rosetta-machine builder consumes a single immutable fork commit, never a patch f
   engine session teardown test checks disposal.
 - **Qualification:** the client-read regression is red on the serving
   phosphor.11 engine, whose exercised declaration reader and digest method are
-  byte-identical to this phosphor.13 base. Exact-base runtime and candidate
-  client-read proofs, recipe parity and runner timing remain release gates.
+  byte-identical to this phosphor.13 base. Exact-base and candidate native
+  client-read proofs pass, with seven declared-Git trust controls. The focused
+  function-boundary law compares memoised and unmemoised empty and non-empty
+  values, and requires fresh unreadable values without failures. First-install
+  qualification includes unchanged ordinary checks in two sessions while
+  withdrawn; timing is observed from ordinary CI after return.
 - **Drop when:** the selected upstream release shares successful declaration
   reads at the same session/source boundary while preserving failed-read
   no-reuse, non-empty session binding and explicit workspace-epoch changes,
