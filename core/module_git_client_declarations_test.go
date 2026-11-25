@@ -3,10 +3,12 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/dagger/dagger/dagql"
 	"github.com/dagger/dagger/engine"
@@ -190,9 +192,12 @@ clients = ["github.com/acme/private/hello@main", "https://github.com/acme/other.
 				dagql.Func("exists", func(_ context.Context, _ *Directory, args struct {
 					Path         string
 					ExpectedType dagql.Optional[ExistsType]
-				}) (bool, error) { if tc.unreadable {
-					return false, errors.New("declaration unavailable")
-				}; return args.Path == "dagger.toml", nil }),
+				}) (bool, error) {
+					if tc.unreadable {
+						return false, errors.New("declaration unavailable")
+					}
+					return args.Path == "dagger.toml", nil
+				}),
 				dagql.Func("file", func(_ context.Context, _ *Directory, _ struct{ Path string }) (*File, error) { return &File{}, nil }),
 			}.Install(f.dag)
 			dagql.Fields[*File]{
@@ -233,6 +238,103 @@ clients = ["github.com/acme/private/hello@main", "https://github.com/acme/other.
 					require.NotEmpty(t, direct)
 				}
 			}
+		})
+	}
+}
+
+func TestGitClientDeclarationsBoundUnreadableSelections(t *testing.T) {
+	for _, shared := range []bool{false, true} {
+		t.Run(fmt.Sprintf("shared=%t", shared), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				f := newModuleOwnershipTest(t)
+				ctx, cancel := context.WithCancel(f.session("bounded-declaration"))
+				defer cancel()
+				ExistsTypes.Install(f.dag)
+				f.dag.InstallObject(dagql.NewClass(f.dag, dagql.ClassOpts[*Directory]{Typed: &Directory{}}))
+				f.dag.InstallObject(dagql.NewClass(f.dag, dagql.ClassOpts[*File]{Typed: &File{}}))
+				var reads atomic.Int64
+				dagql.Fields[*Directory]{
+					dagql.Func("exists", func(_ context.Context, _ *Directory, args struct {
+						Path         string
+						ExpectedType dagql.Optional[ExistsType]
+					}) (bool, error) {
+						return args.Path == "dagger.toml", nil
+					}),
+					dagql.Func("file", func(context.Context, *Directory, struct{ Path string }) (*File, error) { return &File{}, nil }),
+				}.Install(f.dag)
+				dagql.Fields[*File]{
+					dagql.Func("contents", func(ctx context.Context, _ *File, _ struct{}) (string, error) {
+						if reads.Add(1) <= 2 {
+							<-ctx.Done()
+							return "", ctx.Err()
+						}
+						return "[modules.go]\nsource = \"go\"\n[sdks.go]\nmodule = \"go\"\n[sdks.go.scopes.\"modules/caller\"]\nis-module = true\nclients = [\"github.com/acme/private/hello@main\"]\n", nil
+					}),
+				}.Install(f.dag)
+				tree := newTypeDefAttachedResult(t, ctx, f.cache, f.dag, "bounded-declaration-tree", &Directory{})
+				mod := f.module(ctx, "BoundedDeclaration", moduleOwnershipModuleOpts{})
+				src := mod.Self().Source.Value.Self()
+				src.SourceRootSubpath = "modules/caller"
+				src.DirSrc = &DirModuleSource{OriginalContextDir: tree}
+				mod.Self().Source = dagql.NonNull(newTypeDefAttachedResult(t, ctx, f.cache, f.dag, "bounded-declaration-source", src))
+				server := &gitDeclarationValueTestServer{gitDeclarationServer: f.root.Server}
+				if shared {
+					server.memo = NewGitClientDeclarations()
+				}
+				f.root.Server = server
+				fn := &ModuleFunction{mod: mod}
+				var previous string
+				for range 2 {
+					result := make(chan string, 2)
+					go func() {
+						value, err := fn.declaredGitClientsDigest(ctx)
+						if err != nil {
+							result <- "error:" + err.Error()
+							return
+						}
+						result <- value
+					}()
+					synctest.Wait()
+					waiters := 1
+					if shared {
+						time.Sleep(5 * time.Second)
+						go func() {
+							value, err := fn.declaredGitClientsDigest(ctx)
+							if err != nil {
+								result <- "error:" + err.Error()
+								return
+							}
+							result <- value
+						}()
+						synctest.Wait()
+						waiters++
+						time.Sleep(5 * time.Second)
+					} else {
+						time.Sleep(10 * time.Second)
+					}
+					synctest.Wait()
+					for range waiters {
+						select {
+						case value := <-result:
+							require.Contains(t, value, "unreadable:")
+							require.NotEqual(t, previous, value)
+							previous = value
+						default:
+							cancel()
+							<-result
+							t.Fatal("a blocked declaration read held a selection beyond ten seconds")
+						}
+					}
+				}
+				value, err := fn.declaredGitClientsDigest(ctx)
+				require.NoError(t, err)
+				require.NotEmpty(t, value)
+				require.NotContains(t, value, "unreadable:")
+				again, err := fn.declaredGitClientsDigest(ctx)
+				require.NoError(t, err)
+				require.Equal(t, value, again)
+				require.EqualValues(t, 3, reads.Load())
+			})
 		})
 	}
 }

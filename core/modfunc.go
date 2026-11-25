@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dagger/dagger/internal/buildkit/util/bklog"
 	"github.com/dagger/dagger/util/gitutil"
@@ -43,6 +44,8 @@ const declaredClientsInput = "declaredClients"
 // its code may borrow the session's git credentials, and the config can sit
 // outside the module's source.
 const declaredGitClientsInput = "declaredGitClients"
+
+const declaredGitClientsReadTimeout = 10 * time.Second
 
 type ModuleFunction struct {
 	mod    dagql.ObjectResult[*Module]
@@ -881,13 +884,22 @@ func (fn *ModuleFunction) declaredGitClientsDigest(ctx context.Context) (string,
 	if !mod.Source.Valid || mod.Source.Value.Self() == nil {
 		return "", nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, declaredGitClientsReadTimeout)
+	defer cancel()
+
 	dag, err := CurrentDagqlServer(ctx)
 	if err != nil {
 		return "", err
 	}
 	load := func(ctx context.Context) (string, error) {
+		ctx, cancel := context.WithTimeout(ctx, declaredGitClientsReadTimeout)
+		defer cancel()
+
 		declared, err := ModuleDeclaredGitClients(ctx, dag, mod.Source.Value.Self())
 		if err != nil {
+			return "", err
+		}
+		if err := ctx.Err(); err != nil {
 			return "", err
 		}
 		if len(declared) == 0 {
