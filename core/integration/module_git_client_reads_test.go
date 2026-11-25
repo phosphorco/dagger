@@ -40,11 +40,12 @@ func (ModuleGitClientReadsSuite) TestSelectionsShareDeclarationRead(ctx context.
 			expected[key] = value
 		}
 		query := filepath.Join(evidence, fmt.Sprintf("query-%d.graphql", count))
-		require.NoError(t, os.WriteFile(query, []byte("{ readProbe { "+strings.Join(selections, " ")+" } }"), 0o600))
+		require.NoError(t, os.WriteFile(query, []byte("{ version "+strings.Join(selections, " ")+" }"), 0o600))
 		trace := filepath.Join(evidence, fmt.Sprintf("client-reads-%d.strace", count))
-		cmd := hostDaggerCommandRaw(ctx, t, root, "--workspace="+root, "api", "query", "--doc="+query)
+		cmd := hostDaggerCommandRaw(ctx, t, root, "--workspace="+root, "api", "query", "-m", module, "--doc="+query)
+		inherited := cmd.Env
 		cmd.Env = nil
-		for _, entry := range os.Environ() {
+		for _, entry := range inherited {
 			key, _, _ := strings.Cut(entry, "=")
 			switch key {
 			case "DAGGER_MODULE", "DAGGER_SESSION_PORT", "DAGGER_SESSION_TOKEN", "DAGGER_SESSION_CLIENT_ID":
@@ -57,11 +58,12 @@ func (ModuleGitClientReadsSuite) TestSelectionsShareDeclarationRead(ctx context.
 		var stdout, stderr strings.Builder
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 		require.NoError(t, cmd.Run(), stderr.String())
-		var response struct {
-			ReadProbe map[string]string `json:"readProbe"`
-		}
+		var response map[string]string
 		require.NoError(t, json.Unmarshal([]byte(stdout.String()), &response), stdout.String())
-		require.Equal(t, expected, response.ReadProbe)
+		version := response["version"]
+		require.NotEmpty(t, version, "the native query must identify its engine")
+		delete(response, "version")
+		require.Equal(t, expected, response)
 		raw, err := os.ReadFile(trace)
 		require.NoError(t, err)
 		opened := 0
@@ -71,7 +73,7 @@ func (ModuleGitClientReadsSuite) TestSelectionsShareDeclarationRead(ctx context.
 			}
 		}
 		require.Positive(t, opened, "the oracle must observe actual client declaration reads")
-		t.Logf("selections=%d declarationReads=%d evidence=%s", count, opened, trace)
+		t.Logf("engine=%s selections=%d declarationReads=%d evidence=%s", version, count, opened, trace)
 		return opened
 	}
 	single, many := reads(1), reads(20)
